@@ -22,6 +22,14 @@ final class ExtensionManager: ObservableObject {
         installed = Storage.load([InstalledExtension].self, from: Self.installedFile) ?? []
         // Drop records whose JAR went missing (for example after an OS storage purge).
         installed.removeAll { !FileManager.default.fileExists(atPath: $0.jarURL.path) }
+        // Family friendly: anything flagged as adult is removed, even if an older build kept it.
+        for record in installed where record.nsfw {
+            try? FileManager.default.removeItem(at: record.jarURL)
+        }
+        if installed.contains(where: \.nsfw) {
+            installed.removeAll(where: \.nsfw)
+            Storage.save(installed, to: Self.installedFile)
+        }
     }
 
     // MARK: - Lookup
@@ -95,7 +103,7 @@ final class ExtensionManager: ObservableObject {
 
     private func deduplicated(_ items: [CatalogExtension]) -> [CatalogExtension] {
         var best: [String: CatalogExtension] = [:]
-        for item in items where item.isSupported {
+        for item in items where item.isSupported && !item.nsfw {
             if let existing = best[item.packageName], existing.versionCode >= item.versionCode { continue }
             best[item.packageName] = item
         }
@@ -106,6 +114,10 @@ final class ExtensionManager: ObservableObject {
 
     func install(_ item: CatalogExtension) async {
         guard !installing.contains(item.packageName) else { return }
+        guard !item.nsfw else {
+            lastError = "MokaReader no permite extensiones de contenido para adultos."
+            return
+        }
         installing.insert(item.packageName)
         defer { installing.remove(item.packageName) }
 
@@ -119,6 +131,11 @@ final class ExtensionManager: ObservableObject {
             }
             try? FileManager.default.removeItem(at: destination)
             try FileManager.default.moveItem(at: temporary, to: destination)
+
+            // The repository index can be wrong or edited; the JAR's own manifest is checked too.
+            if try await JVMEngine.shared.declaresAdultContent(jarURL: destination) {
+                throw ExtensionBlockedError()
+            }
 
             let sources = try await JVMEngine.shared.inspectSources(
                 extensionId: item.packageName,
@@ -154,5 +171,11 @@ final class ExtensionManager: ObservableObject {
         Storage.save(installed, to: Self.installedFile)
         JVMEngine.shared.forget(extensionId: record.id)
         try? FileManager.default.removeItem(at: record.jarURL)
+    }
+}
+
+struct ExtensionBlockedError: LocalizedError {
+    var errorDescription: String? {
+        "Esta extensión está marcada como contenido para adultos y MokaReader no la permite."
     }
 }

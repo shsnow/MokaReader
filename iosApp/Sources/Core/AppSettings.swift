@@ -12,10 +12,6 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(defaultReadingMode.rawValue, forKey: "defaultReadingMode") }
     }
 
-    @Published var showNSFW: Bool {
-        didSet { defaults.set(showNSFW, forKey: "showNSFW") }
-    }
-
     /// Source languages shown in Explorar. Empty means all.
     @Published var languages: Set<String> {
         didSet { defaults.set(Array(languages), forKey: "languages") }
@@ -26,7 +22,6 @@ final class AppSettings: ObservableObject {
         let defaults = UserDefaults.standard
         defaultReadingMode = ReadingMode(rawValue: defaults.string(forKey: "defaultReadingMode") ?? "")
             ?? .webtoon
-        showNSFW = defaults.bool(forKey: "showNSFW")
         if let stored = defaults.array(forKey: "languages") as? [String] {
             languages = Set(stored)
         } else {

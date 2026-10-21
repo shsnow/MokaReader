@@ -16,6 +16,7 @@ struct ReaderView: View {
     @Environment(\.displayScale) private var displayScale
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var settings: AppSettings
+    @EnvironmentObject private var downloads: DownloadManager
 
     @State private var chapterIndex: Int
     @State private var pages: [PageItem] = []
@@ -24,6 +25,16 @@ struct ReaderView: View {
     @State private var mode: ReadingMode = .webtoon
     @State private var showOverlay = true
     @State private var currentPage = 0
+    @State private var isOffline = false
+
+    /// Webtoon zoom: the strip is laid out wider and scrolls in both directions.
+    @State private var zoom: CGFloat = 1
+    @GestureState private var pinch: CGFloat = 1
+    @State private var pan: CGFloat = 0
+    @GestureState private var panDrag: CGFloat = 0
+
+    /// How many pages ahead to load before they come on screen.
+    private let prefetchCount = 4
 
     init(context: ReaderContext) {
         self.context = context
@@ -73,7 +84,11 @@ struct ReaderView: View {
     // MARK: - Webtoon
 
     private func webtoon(width: CGFloat) -> some View {
-        ScrollView {
+        let decodeWidth = width * displayScale * 1.5
+        let scale = min(max(zoom * pinch, 1), 3)
+        // Horizontal room the zoomed strip has on each side.
+        let maxPan = width * (scale - 1) / 2
+        return ScrollView(.vertical, showsIndicators: false) {
             LazyVStack(spacing: 0) {
                 ForEach(Array(pages.enumerated()), id: \.element.id) { offset, page in
                     ReaderPageView(
@@ -81,11 +96,13 @@ struct ReaderView: View {
                         manga: context.manga,
                         installed: context.installed,
                         width: width,
-                        decodeWidth: width * displayScale,
-                        fitHeight: nil
+                        decodeWidth: decodeWidth,
+                        fitHeight: nil,
+                        onTap: nil
                     )
                     .onAppear {
                         currentPage = offset
+                        prefetch(after: offset, decodeWidth: decodeWidth)
                         if offset == pages.count - 1 { markRead() }
                     }
                 }
@@ -94,7 +111,47 @@ struct ReaderView: View {
             }
         }
         .id(chapter.url)
-        .onTapGesture { withAnimation(.easeInOut(duration: 0.2)) { showOverlay.toggle() } }
+        // Zoom scales the visible viewport around the screen centre; the strip keeps its layout,
+        // so the reading position never moves and pages still load lazily.
+        .scaleEffect(scale, anchor: .center)
+        .offset(x: min(max(pan + panDrag, -maxPan), maxPan))
+        .clipped()
+        .simultaneousGesture(
+            MagnificationGesture()
+                .updating($pinch) { value, state, _ in state = value }
+                .onEnded { value in
+                    withAnimation(.easeOut(duration: 0.15)) {
+                        zoom = min(max(zoom * value, 1), 3)
+                        if zoom <= 1.01 { zoom = 1; pan = 0 }
+                        let limit = width * (zoom - 1) / 2
+                        pan = min(max(pan, -limit), limit)
+                    }
+                }
+        )
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 12)
+                .updating($panDrag) { value, state, _ in
+                    if zoom > 1.01 { state = value.translation.width }
+                }
+                .onEnded { value in
+                    guard zoom > 1.01 else { return }
+                    let limit = width * (zoom - 1) / 2
+                    pan = min(max(pan + value.translation.width, -limit), limit)
+                }
+        )
+        .onTapGesture(count: 2) {
+            withAnimation(.easeOut(duration: 0.2)) {
+                if zoom > 1.05 {
+                    zoom = 1
+                    pan = 0
+                } else {
+                    zoom = 2
+                }
+            }
+        }
+        .onTapGesture {
+            withAnimation(.easeInOut(duration: 0.2)) { showOverlay.toggle() }
+        }
     }
 
     // MARK: - Paged
@@ -107,21 +164,59 @@ struct ReaderView: View {
                     manga: context.manga,
                     installed: context.installed,
                     width: size.width,
-                    decodeWidth: size.width * displayScale * 1.5,
-                    fitHeight: size.height
+                    decodeWidth: size.width * displayScale * 2,
+                    fitHeight: size.height,
+                    onTap: { position in handlePagedTap(position) }
                 )
                 .tag(offset)
             }
             chapterEnd
+                .contentShape(Rectangle())
+                .onTapGesture { withAnimation(.easeInOut(duration: 0.2)) { showOverlay.toggle() } }
                 .tag(pages.count)
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
         .environment(\.layoutDirection, mode == .rightToLeft ? .rightToLeft : .leftToRight)
         .id("\(chapter.url)-\(mode.rawValue)")
         .onChange(of: currentPage) { value in
+            prefetch(after: value, decodeWidth: size.width * displayScale * 2)
             if value >= pages.count - 1 && !pages.isEmpty { markRead() }
         }
-        .onTapGesture { withAnimation(.easeInOut(duration: 0.2)) { showOverlay.toggle() } }
+        .onAppear {
+            prefetch(after: currentPage, decodeWidth: size.width * displayScale * 2)
+        }
+    }
+
+    /// Edge taps turn pages; the middle of the screen shows or hides the controls.
+    /// In right-to-left mode the left edge moves forward, like a printed manga.
+    private func handlePagedTap(_ position: CGFloat) {
+        let forward: Bool
+        if position < 0.3 {
+            forward = mode == .rightToLeft
+        } else if position > 0.7 {
+            forward = mode != .rightToLeft
+        } else {
+            withAnimation(.easeInOut(duration: 0.2)) { showOverlay.toggle() }
+            return
+        }
+        let target = currentPage + (forward ? 1 : -1)
+        guard target >= 0, target <= pages.count else { return }
+        withAnimation(.easeInOut(duration: 0.25)) { currentPage = target }
+    }
+
+    private func prefetch(after index: Int, decodeWidth: CGFloat) {
+        guard !pages.isEmpty else { return }
+        let start = index + 1
+        let end = min(index + prefetchCount, pages.count - 1)
+        guard start <= end else { return }
+        let upcoming = Array(pages[start...end])
+        let manga = context.manga
+        let installed = context.installed
+        Task {
+            await ImagePipeline.shared.prefetch(
+                upcoming, sourceId: manga.sourceId, installed: installed, maxWidth: decodeWidth
+            )
+        }
     }
 
     // MARK: - Pieces
@@ -163,11 +258,25 @@ struct ReaderView: View {
                         .font(.caption)
                         .foregroundStyle(.white.opacity(0.7))
                         .lineLimit(1)
-                    Text(chapter.name)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
+                    HStack(spacing: 6) {
+                        Text(chapter.name)
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(1)
+                        if isOffline {
+                            Image(systemName: "arrow.down.circle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(0.7))
+                        }
+                    }
                 }
                 Spacer()
+                if mode == .webtoon && zoom > 1.05 {
+                    Button {
+                        withAnimation { zoom = 1; pan = 0 }
+                    } label: {
+                        Image(systemName: "arrow.down.right.and.arrow.up.left")
+                    }
+                }
             }
             .padding(.horizontal)
             .padding(.vertical, 8)
@@ -223,8 +332,12 @@ struct ReaderView: View {
         Binding(
             get: { mode },
             set: { value in
+                let position = currentPage
                 mode = value
-                currentPage = 0
+                zoom = 1
+                pan = 0
+                // Keep the reading position across mode changes.
+                currentPage = pages.isEmpty ? 0 : min(position, pages.count - 1)
                 library.setReadingMode(value, for: context.manga)
             }
         )
@@ -243,9 +356,19 @@ struct ReaderView: View {
         error = nil
         pages = []
         currentPage = 0
+        zoom = 1
+        pan = 0
         defer { isLoading = false }
         let target = chapter
         library.markOpened(target, in: context.manga)
+
+        // Downloaded chapters open from disk, without the network or the extension engine.
+        if let local = downloads.localPages(manga: context.manga, chapter: target) {
+            isOffline = true
+            pages = local
+            return
+        }
+        isOffline = false
         do {
             let loaded = try await JVMEngine.shared.pages(
                 of: target, manga: context.manga, installed: context.installed
@@ -265,7 +388,8 @@ struct ReaderView: View {
     }
 }
 
-/// One page. Webtoon pages fill the width at their natural height; paged pages fit the screen.
+/// One page. Webtoon pages fill the width at their natural height; paged pages fit the screen
+/// and can be zoomed.
 struct ReaderPageView: View {
     let page: PageItem
     let manga: MangaItem
@@ -273,6 +397,8 @@ struct ReaderPageView: View {
     let width: CGFloat
     let decodeWidth: CGFloat
     let fitHeight: CGFloat?
+    /// Paged mode only: horizontal tap position, 0 (left) to 1 (right).
+    let onTap: ((CGFloat) -> Void)?
 
     @State private var image: UIImage?
     @State private var failed: String?
@@ -282,9 +408,7 @@ struct ReaderPageView: View {
         Group {
             if let image {
                 if let fitHeight {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFit()
+                    ZoomableImageView(image: image) { position in onTap?(position) }
                         .frame(width: width, height: fitHeight)
                 } else {
                     Image(uiImage: image)

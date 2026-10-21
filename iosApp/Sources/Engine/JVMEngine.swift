@@ -174,6 +174,18 @@ final class JVMEngine: @unchecked Sendable {
         }
     }
 
+    /// Reads the JAR's manifest without loading its code.
+    func declaresAdultContent(jarURL: URL) async throws -> Bool {
+        try await onQueue { runtime -> Bool in
+            let response = try Self.checked(
+                runtime.dispatch(
+                    ExtensionHostRequest(operation: "inspectExtension", jarPath: jarURL.path)
+                )
+            )
+            return ContentFilter.manifestDeclaresAdult(response.nsfw)
+        }
+    }
+
     func forget(extensionId: String) {
         queue.async {
             self.loadedExtensions[extensionId] = nil

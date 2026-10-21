@@ -9,7 +9,7 @@ struct ExtensionsView: View {
 
     private var available: [CatalogExtension] {
         extensions.catalog
-            .filter { settings.showNSFW || !$0.nsfw }
+            .filter { !$0.nsfw }
             .filter { item in item.languages.contains { settings.shows(language: $0) } }
             .filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }
     }
@@ -122,15 +122,14 @@ struct ExtensionsView: View {
             ExtensionIcon(url: item.iconURL)
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.name)
-                Text(item.languages.prefix(6).map(Language.displayName).joined(separator: ", "))
+                Text(
+                    item.languages.count > 6
+                        ? item.languages.prefix(6).map(Language.displayName).joined(separator: ", ") + " y \(item.languages.count - 6) más"
+                        : item.languages.map(Language.displayName).joined(separator: ", ")
+                )
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                if item.nsfw {
-                    Text("+18")
-                        .font(.caption2.bold())
-                        .foregroundStyle(.red)
-                }
             }
             Spacer()
             if extensions.installedVersion(of: item.packageName) != nil && !extensions.hasUpdate(item) {

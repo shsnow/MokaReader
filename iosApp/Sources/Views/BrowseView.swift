@@ -6,7 +6,7 @@ struct BrowseView: View {
 
     private var visibleSources: [SourceInfo] {
         extensions.installed
-            .filter { settings.showNSFW || !$0.nsfw }
+            .filter { !$0.nsfw }
             .flatMap(\.sources)
             .filter { settings.shows(language: $0.lang) }
     }
@@ -157,14 +157,22 @@ struct SourceBrowseView: View {
         defer { isLoading = false }
         let requested = listing
         do {
-            let result = try await JVMEngine.shared.mangaPage(
-                requested, source: source, installed: installed, page: page + 1
-            )
-            guard requested == listing else { return }
-            let known = Set(items.map(\.id))
-            items.append(contentsOf: result.items.filter { !known.contains($0.id) })
-            page += 1
-            hasNextPage = result.hasNextPage && !result.items.isEmpty
+            // A page can come back empty after hiding adult series; fetch a few more pages so
+            // the infinite scroll does not stall with nothing on screen to trigger it.
+            var attempts = 0
+            repeat {
+                let result = try await JVMEngine.shared.mangaPage(
+                    requested, source: source, installed: installed, page: page + 1
+                )
+                guard requested == listing else { return }
+                let known = Set(items.map(\.id))
+                let fresh = ContentFilter.allowed(result.items).filter { !known.contains($0.id) }
+                items.append(contentsOf: fresh)
+                page += 1
+                hasNextPage = result.hasNextPage && !result.items.isEmpty
+                attempts += 1
+                if !fresh.isEmpty { break }
+            } while hasNextPage && attempts < 4
             error = nil
         } catch {
             self.error = error.localizedDescription

@@ -6,6 +6,24 @@ struct MokaReaderApp: App {
     @StateObject private var library = LibraryStore.shared
     @StateObject private var settings = AppSettings.shared
     @StateObject private var engine = EngineStatus.shared
+    @StateObject private var downloads = DownloadManager.shared
+
+    init() {
+        // MokaReader is a reading app; its titles are set in a book face.
+        let large = UIFontDescriptor.preferredFontDescriptor(withTextStyle: .largeTitle)
+        if let serif = large.withDesign(.serif) {
+            let bold = serif.withSymbolicTraits(.traitBold) ?? serif
+            UINavigationBar.appearance().largeTitleTextAttributes = [
+                .font: UIFont(descriptor: bold, size: 0)
+            ]
+        }
+        let inline = UIFontDescriptor.preferredFontDescriptor(withTextStyle: .headline)
+        if let serifInline = inline.withDesign(.serif) {
+            UINavigationBar.appearance().titleTextAttributes = [
+                .font: UIFont(descriptor: serifInline, size: 0)
+            ]
+        }
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -14,6 +32,7 @@ struct MokaReaderApp: App {
                 .environmentObject(library)
                 .environmentObject(settings)
                 .environmentObject(engine)
+                .environmentObject(downloads)
                 .tint(.moka)
         }
     }

@@ -8,6 +8,7 @@ import UIKit
 /// The fast path asks the extension only for the URL and headers (Referer, cookies, user agent)
 /// and downloads with URLSession. If that fails or the bytes are not an image, it falls back to
 /// letting the extension download the image itself, which runs the source's interceptors.
+/// Downloaded chapters are read straight from disk.
 actor ImagePipeline {
     static let shared = ImagePipeline()
 
@@ -30,6 +31,10 @@ actor ImagePipeline {
 
     /// Cover headers are the source's plain headers, the same for every cover of that source.
     private var coverHeaders: [Int64: (headers: [String: String], expires: Date)] = [:]
+
+    /// One load per page at a time, so the reader and the prefetcher never fetch the same page
+    /// twice through the (serial) extension engine.
+    private var inFlight: [String: Task<UIImage, Error>] = [:]
 
     private var coverDirectory: URL {
         let url = Storage.cacheDirectory.appendingPathComponent("Covers", isDirectory: true)
@@ -94,35 +99,61 @@ actor ImagePipeline {
 
     // MARK: - Pages
 
-    func page(_ page: PageItem, sourceId: Int64, installed: InstalledExtension, maxWidth: CGFloat) async throws -> UIImage {
-        guard let imageURL = page.imageURL, !imageURL.isEmpty else { throw URLError(.badURL) }
-        let key = "page|\(imageURL)" as NSString
-        if let cached = memory.object(forKey: key) { return cached }
+    private static func key(for page: PageItem) -> String {
+        if let localURL = page.localURL { return "local|\(localURL.path)" }
+        return "page|\(page.imageURL ?? page.url)"
+    }
 
+    func page(_ page: PageItem, sourceId: Int64, installed: InstalledExtension, maxWidth: CGFloat) async throws -> UIImage {
+        let key = Self.key(for: page)
+        if let cached = memory.object(forKey: key as NSString) { return cached }
+        if let running = inFlight[key] { return try await running.value }
+
+        let task = Task<UIImage, Error> {
+            let data = try await self.pageData(page, sourceId: sourceId, installed: installed)
+            guard let image = Self.decode(data, maxWidth: maxWidth) else {
+                throw URLError(.cannotDecodeContentData)
+            }
+            return image
+        }
+        inFlight[key] = task
+        defer { inFlight[key] = nil }
+        let image = try await task.value
+        store(image, for: key as NSString)
+        return image
+    }
+
+    /// Loads the next pages into memory ahead of the reader. Errors are ignored: the page view
+    /// retries on its own when it appears.
+    func prefetch(_ pages: [PageItem], sourceId: Int64, installed: InstalledExtension, maxWidth: CGFloat) {
+        for page in pages {
+            let key = Self.key(for: page)
+            if memory.object(forKey: key as NSString) != nil || inFlight[key] != nil { continue }
+            Task { _ = try? await self.page(page, sourceId: sourceId, installed: installed, maxWidth: maxWidth) }
+        }
+    }
+
+    /// The raw image bytes, used by the reader and by downloads.
+    func pageData(_ page: PageItem, sourceId: Int64, installed: InstalledExtension) async throws -> Data {
+        if let localURL = page.localURL {
+            return try Data(contentsOf: localURL)
+        }
+        guard let imageURL = page.imageURL, !imageURL.isEmpty else { throw URLError(.badURL) }
         let pageURL = page.url.isEmpty ? imageURL : page.url
-        var data: Data?
         do {
             let request = try await JVMEngine.shared.imageRequest(
                 imageURL: imageURL, pageURL: pageURL, sourceId: sourceId, installed: installed
             )
             let downloaded = try await download(request)
-            if Self.isImage(downloaded) { data = downloaded }
+            if Self.isImage(downloaded) { return downloaded }
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            data = nil
+            // Fall through to the extension's own client.
         }
-        let bytes: Data
-        if let data {
-            bytes = data
-        } else {
-            bytes = try await JVMEngine.shared.materializeImage(
-                imageURL: imageURL, pageURL: pageURL, sourceId: sourceId, installed: installed
-            )
-        }
-        guard let image = Self.decode(bytes, maxWidth: maxWidth) else { throw URLError(.cannotDecodeContentData) }
-        store(image, for: key)
-        return image
+        return try await JVMEngine.shared.materializeImage(
+            imageURL: imageURL, pageURL: pageURL, sourceId: sourceId, installed: installed
+        )
     }
 
     // MARK: - Helpers
@@ -140,12 +171,12 @@ actor ImagePipeline {
         memory.setObject(image, forKey: key, cost: cost)
     }
 
-    private static func isImage(_ data: Data) -> Bool {
+    static func isImage(_ data: Data) -> Bool {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return false }
         return CGImageSourceGetCount(source) > 0 && CGImageSourceGetType(source) != nil
     }
 
-    private static func hash(_ text: String) -> String {
+    static func hash(_ text: String) -> String {
         SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 

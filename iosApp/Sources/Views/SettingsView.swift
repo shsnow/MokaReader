@@ -4,6 +4,7 @@ struct SettingsView: View {
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var extensions: ExtensionManager
     @EnvironmentObject private var engine: EngineStatus
+    @EnvironmentObject private var downloads: DownloadManager
 
     private let commonLanguages = ["all", "es", "es-419", "en", "pt-BR", "fr", "it", "de", "ja", "ko", "zh"]
 
@@ -27,7 +28,6 @@ struct SettingsView: View {
             }
 
             Section("Contenido") {
-                Toggle("Mostrar contenido +18", isOn: $settings.showNSFW)
                 NavigationLink {
                     LanguagePicker(options: languageOptions)
                 } label: {
@@ -38,6 +38,30 @@ struct SettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+            }
+
+            Section("Almacenamiento") {
+                NavigationLink {
+                    DownloadsView()
+                } label: {
+                    HStack {
+                        Text("Descargas")
+                        Spacer()
+                        if !downloads.queue.isEmpty {
+                            Text("\(downloads.queue.count) en cola")
+                                .foregroundStyle(Color.moka)
+                        } else {
+                            Text(downloads.totalBytes.byteText)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+
+            Section {
+                Label("MokaReader es para toda la familia: las extensiones y series para adultos se bloquean siempre.", systemImage: "checkmark.shield")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
 
             Section("Motor de extensiones") {

@@ -6,6 +6,7 @@ struct MangaDetailView: View {
     @EnvironmentObject private var extensions: ExtensionManager
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var settings: AppSettings
+    @EnvironmentObject private var downloads: DownloadManager
 
     @State private var chapters: [ChapterItem] = []
     @State private var isLoading = false
@@ -27,6 +28,10 @@ struct MangaDetailView: View {
 
     private var displayed: [ChapterItem] { newestFirst ? chapters : ascending }
 
+    private var unread: [ChapterItem] {
+        ascending.filter { !library.isRead($0, in: manga) }
+    }
+
     private var continueTarget: ChapterItem? {
         let ordered = ascending
         guard !ordered.isEmpty else { return nil }
@@ -41,6 +46,32 @@ struct MangaDetailView: View {
     }
 
     var body: some View {
+        Group {
+            if ContentFilter.isAllowed(manga) {
+                content
+            } else {
+                EmptyStateView(
+                    symbol: "hand.raised",
+                    title: "Contenido no disponible",
+                    message: "MokaReader es una app para toda la familia y no muestra contenido para adultos."
+                )
+            }
+        }
+        .navigationTitle(manga.title)
+        .navigationBarTitleDisplayMode(.inline)
+        .task {
+            if chapters.isEmpty, let entry = library.entry(for: manga) {
+                manga = entry.manga
+                chapters = entry.chapters
+            }
+            await refresh()
+        }
+        .fullScreenCover(item: $reader) { context in
+            ReaderView(context: context)
+        }
+    }
+
+    private var content: some View {
         List {
             header
                 .listRowSeparator(.hidden)
@@ -79,7 +110,7 @@ struct MangaDetailView: View {
                 Button {
                     open(target)
                 } label: {
-                    Text(library.lastRead(in: manga) == nil ? "Empezar a leer" : "Continuar: \(target.name)")
+                    Text(buttonTitle(for: target))
                         .font(.body.weight(.semibold))
                         .lineLimit(1)
                         .frame(maxWidth: .infinity)
@@ -117,8 +148,6 @@ struct MangaDetailView: View {
             }
         }
         .listStyle(.plain)
-        .navigationTitle(manga.title)
-        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarTrailing) {
                 Menu {
@@ -130,6 +159,7 @@ struct MangaDetailView: View {
                 } label: {
                     Image(systemName: modeBinding.wrappedValue.symbol)
                 }
+                downloadMenu
                 Button {
                     toggleLibrary()
                 } label: {
@@ -138,16 +168,35 @@ struct MangaDetailView: View {
             }
         }
         .refreshable { await refresh() }
-        .task {
-            if chapters.isEmpty, let entry = library.entry(for: manga) {
-                manga = entry.manga
-                chapters = entry.chapters
+    }
+
+    private var downloadMenu: some View {
+        Menu {
+            Button {
+                download(Array(unread.prefix(5)))
+            } label: {
+                Label("Siguientes 5 sin leer", systemImage: "arrow.down.circle")
             }
-            await refresh()
+            Button {
+                download(unread)
+            } label: {
+                Label("Todos los sin leer (\(unread.count))", systemImage: "arrow.down.circle")
+            }
+            Button {
+                download(ascending)
+            } label: {
+                Label("Todos los capítulos", systemImage: "arrow.down.circle.dotted")
+            }
+            Divider()
+            Button(role: .destructive) {
+                downloads.deleteAll(mangaId: manga.id)
+            } label: {
+                Label("Borrar descargas de esta serie", systemImage: "trash")
+            }
+        } label: {
+            Image(systemName: "arrow.down.circle")
         }
-        .fullScreenCover(item: $reader) { context in
-            ReaderView(context: context)
-        }
+        .disabled(chapters.isEmpty || installed == nil)
     }
 
     private var header: some View {
@@ -155,9 +204,13 @@ struct MangaDetailView: View {
             CoverImage(manga: manga)
                 .frame(width: 110, height: 165)
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(.primary.opacity(0.08))
+                )
             VStack(alignment: .leading, spacing: 6) {
                 Text(manga.title)
-                    .font(.title3.bold())
+                    .font(.system(.title3, design: .serif).bold())
                     .lineLimit(4)
                 if let author = manga.author, !author.isEmpty {
                     Text(author)
@@ -183,21 +236,25 @@ struct MangaDetailView: View {
 
     private func chapterRow(_ chapter: ChapterItem) -> some View {
         let read = library.isRead(chapter, in: manga)
+        let state = downloads.state(manga: manga, chapter: chapter)
         return Button {
             open(chapter)
         } label: {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(chapter.name)
-                    .font(.subheadline.weight(read ? .regular : .medium))
-                    .foregroundStyle(read ? .secondary : .primary)
-                HStack(spacing: 6) {
-                    if let date = chapter.date { Text(date.shortText) }
-                    if let scanlator = chapter.scanlator, !scanlator.isEmpty { Text("· \(scanlator)") }
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(chapter.name)
+                        .font(.subheadline.weight(read ? .regular : .medium))
+                        .foregroundStyle(read ? .secondary : .primary)
+                    HStack(spacing: 6) {
+                        if let date = chapter.date { Text(date.shortText) }
+                        if let scanlator = chapter.scanlator, !scanlator.isEmpty { Text("· \(scanlator)") }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                downloadIndicator(state)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -207,6 +264,45 @@ struct MangaDetailView: View {
             }
             .tint(read ? .gray : .moka)
         }
+        .swipeActions(edge: .leading) {
+            if state == .downloaded {
+                Button("Borrar", role: .destructive) {
+                    downloads.delete(manga: manga, chapter: chapter)
+                }
+            } else {
+                Button("Descargar") {
+                    download([chapter])
+                }
+                .tint(.blue)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func downloadIndicator(_ state: DownloadState) -> some View {
+        switch state {
+            case .none:
+                EmptyView()
+            case .queued:
+                Image(systemName: "clock")
+                    .foregroundStyle(.secondary)
+            case .downloading(let value):
+                Text("\(Int(value * 100))%")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(Color.moka)
+            case .downloaded:
+                Image(systemName: "arrow.down.circle.fill")
+                    .foregroundStyle(.secondary)
+            case .failed:
+                Image(systemName: "exclamationmark.circle")
+                    .foregroundStyle(.red)
+        }
+    }
+
+    private func buttonTitle(for target: ChapterItem) -> String {
+        if library.lastRead(in: manga) == nil { return "Empezar a leer" }
+        if unread.isEmpty { return "Releer: \(target.name)" }
+        return "Continuar: \(target.name)"
     }
 
     private var modeBinding: Binding<ReadingMode> {
@@ -221,7 +317,13 @@ struct MangaDetailView: View {
             library.remove(manga)
         } else {
             library.add(manga, chapters: chapters)
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
         }
+    }
+
+    private func download(_ items: [ChapterItem]) {
+        guard let installed, !items.isEmpty else { return }
+        downloads.enqueue(items, manga: manga, installed: installed)
     }
 
     private func open(_ chapter: ChapterItem) {
@@ -248,7 +350,8 @@ struct MangaDetailView: View {
             error = nil
             library.refresh(result.manga, chapters: result.chapters)
         } catch {
-            self.error = error.localizedDescription
+            // Offline with a saved copy: keep showing it instead of an error.
+            if chapters.isEmpty { self.error = error.localizedDescription }
         }
     }
 }

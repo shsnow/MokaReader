@@ -64,6 +64,8 @@ struct PageItem: Hashable, Identifiable {
     var index: Int
     var url: String
     var imageURL: String?
+    /// Set for downloaded chapters: the image is read from disk, no network or extension needed.
+    var localURL: URL? = nil
 
     var id: Int { index }
 }
@@ -85,7 +87,7 @@ enum ReadingMode: String, Codable, CaseIterable, Identifiable {
 
     var symbol: String {
         switch self {
-            case .webtoon: return "arrow.down.to.line.compact"
+            case .webtoon: return "rectangle.split.1x2"
             case .leftToRight: return "arrow.right"
             case .rightToLeft: return "arrow.left"
         }

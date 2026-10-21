@@ -5,7 +5,7 @@ struct LibraryView: View {
     @State private var query = ""
 
     private var items: [LibraryEntry] {
-        let all = library.sortedEntries
+        let all = library.sortedEntries.filter { ContentFilter.isAllowed($0.manga) }
         guard !query.isEmpty else { return all }
         return all.filter { $0.manga.title.localizedCaseInsensitiveContains(query) }
     }
@@ -18,6 +18,13 @@ struct LibraryView: View {
                     title: "Tu biblioteca está vacía",
                     message: "Busca algo en Explorar y toca el marcador para guardarlo aquí."
                 )
+            } else if items.isEmpty {
+                EmptyStateView(
+                    symbol: "magnifyingglass",
+                    title: "Sin resultados",
+                    message: "Nada en tu biblioteca se llama “\(query)”."
+                )
+                .searchable(text: $query, prompt: "Buscar en la biblioteca")
             } else {
                 MangaGrid(
                     items: items.map(\.manga),

@@ -50,6 +50,10 @@ struct MangaCell: View {
             CoverImage(manga: manga)
                 .aspectRatio(2.0 / 3.0, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(.primary.opacity(0.08))
+                )
                 .overlay(alignment: .topLeading) {
                     if badge > 0 {
                         Text("\(badge)")
@@ -102,12 +106,14 @@ struct EmptyStateView: View {
     let message: String
 
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 14) {
             Image(systemName: symbol)
-                .font(.system(size: 44))
-                .foregroundStyle(.secondary)
+                .font(.system(size: 30, weight: .medium))
+                .foregroundStyle(Color.moka)
+                .frame(width: 76, height: 76)
+                .background(Color.moka.opacity(0.12), in: Circle())
             Text(title)
-                .font(.headline)
+                .font(.system(.title3, design: .serif).weight(.semibold))
             Text(message)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
