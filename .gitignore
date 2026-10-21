@@ -1,0 +1,18 @@
+.DS_Store
+._*
+.idea/
+.gradle
+.kotlin
+
+# XcodeGen output and build products
+/iosApp/*.xcodeproj
+/iosApp/Sources/Info.plist
+/iosApp/build/
+/iosApp/build-*/
+
+# JVM runtime: built by iosApp/Scripts in CI (~200 MB)
+/iosApp/Vendor/
+/iosApp/Resources/JVM/
+/Runtime/ExtensionHost/compat/
+/Runtime/*/build/
+/Runtime/*/test-build/

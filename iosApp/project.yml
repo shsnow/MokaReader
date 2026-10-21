@@ -1,0 +1,83 @@
+name: MokaReader
+options:
+  bundleIdPrefix: cl.jonas
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+
+# Generated with XcodeGen:  cd iosApp && xcodegen generate
+#
+# Not in git, produced by CI (see .github/workflows/ios-testflight.yml):
+#   Vendor/jvm/OpenJDK.xcframework   Scripts/build-openjdk-ios15.sh
+#   Resources/JVM/                   Scripts/build-jvm-runtime.sh + stage-jvm-resources.sh device
+
+packages:
+  # Swift/JNI bridge to the embedded VM. Vendored from TachiyomiAZ iOS under GPL-3.0:
+  # temporary, to be replaced or relicensed before App Store submission (see NOTICE.md).
+  TachiJVMRunner:
+    path: Packages/TachiJVMRunner
+
+targets:
+  MokaReader:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+        excludes:
+          - "Info.plist"
+      - path: Resources/Assets.xcassets
+        buildPhase: resources
+      # The JVM runtime is resolved by name from the bundle root, so these land flattened.
+      - path: Resources/JVM/java_bundle
+        type: folder
+        buildPhase: resources
+      - path: Resources/JVM/tachiaz-compat
+        type: folder
+        buildPhase: resources
+      - path: Resources/JVM/tachiaz-extension-host.jar
+        buildPhase: resources
+      - path: Resources/JVM/tachiaz-mobile-shims.jar
+        buildPhase: resources
+    dependencies:
+      # Static library: linked, never embedded.
+      - framework: Vendor/jvm/OpenJDK.xcframework
+        embed: false
+        link: true
+      - package: TachiJVMRunner
+    info:
+      path: Sources/Info.plist
+      properties:
+        CFBundleDisplayName: MokaReader
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        CFBundleIconName: AppIcon
+        ITSAppUsesNonExemptEncryption: false
+        LSRequiresIPhoneOS: true
+        UILaunchScreen: {}
+        UIUserInterfaceStyle: Automatic
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        "UISupportedInterfaceOrientations~ipad":
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        # Extension sources and self-hosted servers (Komga) can be any host the user adds.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        NSLocalNetworkUsageDescription: MokaReader se conecta a servidores de manga propios, como Komga, en tu red local.
+    settings:
+      base:
+        # The App Store Connect record "MokaReader" was created with this identifier.
+        PRODUCT_BUNDLE_IDENTIFIER: cl.jonas.tachitest
+        MARKETING_VERSION: "0.2"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        # The statically linked VM has no dynamic framework to carry its own dependencies.
+        OTHER_LDFLAGS: "-lz -liconv -lc++ -framework CoreGraphics -framework CoreText -framework ImageIO -framework JavaScriptCore -framework Security"
