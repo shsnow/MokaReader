@@ -7,14 +7,18 @@ embebida (OpenJDK Mobile en modo intérprete) con la capa de compatibilidad Andr
 
 ## Estado
 
-- [x] Repositorios de extensiones (`index.pb`) e instalación de extensiones
-- [x] Explorar fuentes: populares, recientes y búsqueda
-- [x] Ficha de la serie y lista de capítulos
-- [x] Lector webtoon (vertical, a todo el ancho) y paginado izquierda→derecha / derecha→izquierda
-- [x] Biblioteca y progreso de lectura
-- [ ] Restaurar backups `.tachibk` de Mihon (núcleo Kotlin compartido)
-- [ ] Descargas para leer sin conexión
-- [ ] Trackers (AniList, MyAnimeList)
+- [x] Repositorios de extensiones (`index.pb`) e instalación de extensiones de Mihon
+- [x] Explorar, ficha de serie, biblioteca (orden y columnas), notas por serie
+- [x] Lector: webtoon/LTR/RTL, zoom, zonas de toque, fondo, margen webtoon, pantalla encendida
+- [x] Descargas offline (simultáneas configurables, borrar al terminar)
+- [x] Backups `.tachibk`: restaurar **y exportar** (compatible con Mihon)
+- [x] Actividad: novedades de la biblioteca e historial de lectura
+- [x] Contenido +18 bloqueado en todas las capas
+- [ ] Doble página y autoscroll en el lector
+- [ ] Trackers (AniList, MyAnimeList) y prioridad de scanlators
+- [ ] Sincronización entre dispositivos (iCloud)
+- [ ] Portadas personalizadas, íconos alternativos, pestañas configurables
+- [ ] Recorte de bordes y acciones de Apple Pencil
 - [ ] WebView para Cloudflare
 - [ ] Reemplazar/relicenciar TachiJVMRunner (ver `NOTICE.md`)
 

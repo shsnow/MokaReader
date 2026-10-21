@@ -6,8 +6,8 @@ struct ProtobufReader {
     enum Value {
         case varint(UInt64)
         case bytes(Data)
-        case fixed64
-        case fixed32
+        case fixed64(UInt64)
+        case fixed32(UInt32)
     }
 
     enum ReadError: Error {
@@ -31,8 +31,7 @@ struct ProtobufReader {
             case 0:
                 return (number, .varint(try readVarint()))
             case 1:
-                try skip(8)
-                return (number, .fixed64)
+                return (number, .fixed64(try readLittleEndian(8)))
             case 2:
                 // Int(exactly:) and the subtraction keep a corrupt length from trapping.
                 let rawLength = try readVarint()
@@ -43,8 +42,7 @@ struct ProtobufReader {
                 offset += length
                 return (number, .bytes(slice))
             case 5:
-                try skip(4)
-                return (number, .fixed32)
+                return (number, .fixed32(UInt32(truncatingIfNeeded: try readLittleEndian(4))))
             default:
                 throw ReadError.unsupportedWireType(key & 0x7)
         }
@@ -64,9 +62,14 @@ struct ProtobufReader {
         }
     }
 
-    private mutating func skip(_ count: Int) throws {
-        guard offset + count <= data.endIndex else { throw ReadError.truncated }
+    private mutating func readLittleEndian(_ count: Int) throws -> UInt64 {
+        guard count <= data.endIndex - offset else { throw ReadError.truncated }
+        var result: UInt64 = 0
+        for index in 0..<count {
+            result |= UInt64(data[offset + index]) << (8 * UInt64(index))
+        }
         offset += count
+        return result
     }
 }
 

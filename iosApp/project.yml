@@ -47,6 +47,7 @@ targets:
     info:
       path: Sources/Info.plist
       properties:
+        CFBundleDevelopmentRegion: es
         CFBundleDisplayName: MokaReader
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"

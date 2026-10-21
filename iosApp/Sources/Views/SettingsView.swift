@@ -1,10 +1,20 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var extensions: ExtensionManager
     @EnvironmentObject private var engine: EngineStatus
     @EnvironmentObject private var downloads: DownloadManager
+    @EnvironmentObject private var library: LibraryStore
+
+    @State private var showingImporter = false
+    @State private var importing = false
+    @State private var importSummary: MihonImportSummary?
+    @State private var importError: String?
+    @State private var exportDocument: TachibkDocument?
+    @State private var exportError: String?
+    @State private var cacheBytes: Int64 = 0
 
     private let commonLanguages = ["all", "es", "es-419", "en", "pt-BR", "fr", "it", "de", "ja", "ko", "zh"]
 
@@ -16,15 +26,41 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
-            Section("Lectura") {
+            Section {
                 Picker("Modo por defecto", selection: $settings.defaultReadingMode) {
                     ForEach(ReadingMode.allCases) { mode in
                         Text(mode.title).tag(mode)
                     }
                 }
+                Picker("Fondo del lector", selection: $settings.readerBackground) {
+                    ForEach(ReaderBackground.allCases) { Text($0.title).tag($0) }
+                }
+                Picker("Margen lateral en webtoon", selection: $settings.webtoonPadding) {
+                    Text("Sin margen").tag(0.0)
+                    Text("Pequeño").tag(0.04)
+                    Text("Mediano").tag(0.08)
+                }
+                Toggle("Zonas de toque para pasar página", isOn: $settings.tapZonesEnabled)
+                Toggle("Mantener la pantalla encendida", isOn: $settings.keepScreenAwake)
+            } header: {
+                Text("Lectura")
+            } footer: {
                 Text("Manhwa, manhua y webtoons se abren en modo vertical. Puedes cambiar el modo de cada serie desde su ficha o dentro del lector.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+            }
+
+            Section("Biblioteca") {
+                Picker("Series por fila", selection: $settings.gridColumns) {
+                    Text("2").tag(2)
+                    Text("3").tag(3)
+                    Text("4").tag(4)
+                }
+                .pickerStyle(.segmented)
+            }
+
+            Section("Apariencia") {
+                Picker("Tema", selection: $settings.appTheme) {
+                    ForEach(AppTheme.allCases) { Text($0.title).tag($0) }
+                }
             }
 
             Section("Contenido") {
@@ -40,12 +76,12 @@ struct SettingsView: View {
                 }
             }
 
-            Section("Almacenamiento") {
+            Section("Descargas") {
                 NavigationLink {
                     DownloadsView()
                 } label: {
                     HStack {
-                        Text("Descargas")
+                        Text("Capítulos descargados")
                         Spacer()
                         if !downloads.queue.isEmpty {
                             Text("\(downloads.queue.count) en cola")
@@ -56,6 +92,49 @@ struct SettingsView: View {
                         }
                     }
                 }
+                Picker("Páginas simultáneas", selection: $settings.downloadBatch) {
+                    ForEach(1...5, id: \.self) { Text("\($0)").tag($0) }
+                }
+                Toggle("Borrar al terminar de leer", isOn: $settings.deleteAfterReading)
+                Button {
+                    Task {
+                        await ImagePipeline.shared.clearCaches()
+                        cacheBytes = await ImagePipeline.shared.diskCacheBytes()
+                    }
+                } label: {
+                    HStack {
+                        Text("Limpiar caché de imágenes")
+                        Spacer()
+                        Text(cacheBytes.byteText).foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            Section {
+                Button {
+                    showingImporter = true
+                } label: {
+                    HStack {
+                        Text("Restaurar copia de Mihon")
+                        Spacer()
+                        if importing { ProgressView() }
+                    }
+                }
+                .disabled(importing)
+                Button("Exportar copia (.tachibk)") {
+                    do {
+                        exportDocument = TachibkDocument(
+                            data: try MihonBackupExport.make(library: library, extensions: extensions)
+                        )
+                    } catch {
+                        exportError = error.localizedDescription
+                    }
+                }
+                .disabled(library.entries.isEmpty)
+            } header: {
+                Text("Datos")
+            } footer: {
+                Text("La copia usa el formato .tachibk: puedes restaurarla aquí o en Mihon. Lo que ya tienes en MokaReader se conserva y se combina.")
             }
 
             Section {
@@ -90,6 +169,67 @@ struct SettingsView: View {
             }
         }
         .navigationTitle("Ajustes")
+        .task { cacheBytes = await ImagePipeline.shared.diskCacheBytes() }
+        .fileExporter(
+            isPresented: Binding(
+                get: { exportDocument != nil },
+                set: { if !$0 { exportDocument = nil } }
+            ),
+            document: exportDocument,
+            contentType: .data,
+            defaultFilename: MihonBackupExport.suggestedFileName()
+        ) { result in
+            if case .failure(let error) = result {
+                exportError = error.localizedDescription
+            }
+        }
+        .alert(
+            "No se pudo exportar",
+            isPresented: Binding(
+                get: { exportError != nil },
+                set: { if !$0 { exportError = nil } }
+            ),
+            actions: { Button("OK", role: .cancel) {} },
+            message: { Text(exportError ?? "") }
+        )
+        .fileImporter(
+            isPresented: $showingImporter,
+            allowedContentTypes: [.data],
+            allowsMultipleSelection: false
+        ) { result in
+            guard case .success(let urls) = result, let url = urls.first else { return }
+            restore(from: url)
+        }
+        .alert(
+            importError == nil ? "Copia restaurada" : "No se pudo restaurar",
+            isPresented: Binding(
+                get: { importSummary != nil || importError != nil },
+                set: { if !$0 { importSummary = nil; importError = nil } }
+            ),
+            actions: { Button("OK", role: .cancel) {} },
+            message: { Text(importError ?? importSummary?.text ?? "") }
+        )
+    }
+
+    private func restore(from url: URL) {
+        importing = true
+        Task {
+            defer { importing = false }
+            do {
+                let access = url.startAccessingSecurityScopedResource()
+                defer { if access { url.stopAccessingSecurityScopedResource() } }
+                let data = try Data(contentsOf: url)
+                // The protobuf decode can chew through megabytes; keep it off the main actor.
+                let backup = try await Task.detached(priority: .userInitiated) {
+                    try MihonBackup.decode(data)
+                }.value
+                importSummary = try MihonBackupImporter.restore(
+                    backup, into: library, extensions: extensions
+                )
+            } catch {
+                importError = error.localizedDescription
+            }
+        }
     }
 
     private var engineText: String {
@@ -172,4 +312,23 @@ struct LicensesView: View {
 
     Gracias a los equipos de Mihon, Tachiyomi, Suwayomi, Aidoku, TachiyomiAZ y OpenJDK.
     """
+}
+
+/// The generated backup, handed to the system "save to Files" sheet.
+struct TachibkDocument: FileDocument {
+    static let readableContentTypes: [UTType] = [.data]
+
+    var data: Data
+
+    init(data: Data) {
+        self.data = data
+    }
+
+    init(configuration: ReadConfiguration) throws {
+        data = configuration.file.regularFileContents ?? Data()
+    }
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: data)
+    }
 }

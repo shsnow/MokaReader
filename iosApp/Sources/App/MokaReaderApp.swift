@@ -7,6 +7,7 @@ struct MokaReaderApp: App {
     @StateObject private var settings = AppSettings.shared
     @StateObject private var engine = EngineStatus.shared
     @StateObject private var downloads = DownloadManager.shared
+    @StateObject private var updater = LibraryUpdater.shared
 
     init() {
         // MokaReader is a reading app; its titles are set in a book face.
@@ -33,7 +34,9 @@ struct MokaReaderApp: App {
                 .environmentObject(settings)
                 .environmentObject(engine)
                 .environmentObject(downloads)
+                .environmentObject(updater)
                 .tint(.moka)
+                .preferredColorScheme(settings.appTheme.colorScheme)
         }
     }
 }
@@ -47,6 +50,8 @@ struct RootView: View {
                 .tabItem { Label("Biblioteca", systemImage: "books.vertical") }
             NavigationStack { BrowseView() }
                 .tabItem { Label("Explorar", systemImage: "safari") }
+            NavigationStack { ActivityView() }
+                .tabItem { Label("Actividad", systemImage: "bolt") }
             NavigationStack { ExtensionsView() }
                 .tabItem { Label("Extensiones", systemImage: "puzzlepiece.extension") }
             NavigationStack { SettingsView() }

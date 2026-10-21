@@ -5,6 +5,23 @@ struct LibraryEntry: Codable, Hashable {
     var manga: MangaItem
     var chapters: [ChapterItem]
     var addedAt: Date
+    var note: String? = nil
+}
+
+/// One "opened a chapter" event, newest first. The manga snapshot lets History navigate
+/// even when the series is no longer in the library.
+struct ReadingRecord: Codable, Hashable, Identifiable {
+    var manga: MangaItem
+    var chapterURL: String
+    var chapterName: String
+    var date: Date
+
+    var id: String { "\(manga.id)#\(chapterURL)#\(date.timeIntervalSince1970)" }
+}
+
+struct BackupImportItem {
+    var entry: LibraryEntry
+    var progress: MangaProgress
 }
 
 struct MangaProgress: Codable, Hashable {
@@ -22,13 +39,17 @@ final class LibraryStore: ObservableObject {
 
     @Published private(set) var entries: [String: LibraryEntry]
     @Published private(set) var progress: [String: MangaProgress]
+    @Published private(set) var history: [ReadingRecord]
 
     private static let libraryFile = "library.json"
     private static let progressFile = "progress.json"
+    private static let historyFile = "history.json"
+    private static let historyLimit = 300
 
     private init() {
         entries = Storage.load([String: LibraryEntry].self, from: Self.libraryFile) ?? [:]
         progress = Storage.load([String: MangaProgress].self, from: Self.progressFile) ?? [:]
+        history = Storage.load([ReadingRecord].self, from: Self.historyFile) ?? []
     }
 
     var sortedEntries: [LibraryEntry] {
@@ -96,6 +117,47 @@ final class LibraryStore: ObservableObject {
         value.lastReadAt = Date()
         progress[manga.id] = value
         saveProgress()
+
+        // Reopening the same chapter refreshes its entry instead of stacking duplicates.
+        if let first = history.first, first.manga.id == manga.id, first.chapterURL == chapter.url {
+            history[0].date = Date()
+        } else {
+            history.insert(
+                ReadingRecord(manga: manga, chapterURL: chapter.url, chapterName: chapter.name, date: Date()),
+                at: 0
+            )
+            if history.count > Self.historyLimit {
+                history.removeLast(history.count - Self.historyLimit)
+            }
+        }
+        Storage.save(history, to: Self.historyFile)
+    }
+
+    func clearHistory() {
+        history = []
+        Storage.save(history, to: Self.historyFile)
+    }
+
+    func note(for manga: MangaItem) -> String {
+        entries[manga.id]?.note ?? ""
+    }
+
+    func setNote(_ note: String, for manga: MangaItem) {
+        guard var entry = entries[manga.id] else { return }
+        let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        entry.note = trimmed.isEmpty ? nil : trimmed
+        entries[manga.id] = entry
+        saveLibrary()
+    }
+
+    /// A library entry's chapters stamped with their series, for the Novedades list.
+    var latestUploads: [(manga: MangaItem, chapter: ChapterItem)] {
+        entries.values
+            .flatMap { entry in entry.chapters.map { (manga: entry.manga, chapter: $0) } }
+            .filter { $0.1.dateUpload > 0 }
+            .sorted { $0.1.dateUpload > $1.1.dateUpload }
+            .prefix(150)
+            .map { $0 }
     }
 
     func readingMode(for manga: MangaItem, fallback: ReadingMode) -> ReadingMode {
@@ -108,6 +170,39 @@ final class LibraryStore: ObservableObject {
         value.readingMode = mode
         progress[manga.id] = value
         saveProgress()
+    }
+
+    /// Merges a Mihon backup in one pass: existing read chapters are kept, the furthest
+    /// history wins, and a reading mode already chosen in MokaReader is not overwritten.
+    func applyImport(_ items: [BackupImportItem]) -> (added: Int, merged: Int) {
+        var added = 0
+        var merged = 0
+        for item in items {
+            let id = item.entry.manga.id
+            if var existing = entries[id] {
+                // What is already here was fetched live and is at least as current as the
+                // backup, which may be months old: keep it, and only fill in a chapter list
+                // that is missing entirely. Replacing a fresher list would drop chapters
+                // added since the backup was taken.
+                if existing.chapters.isEmpty { existing.chapters = item.entry.chapters }
+                entries[id] = existing
+                merged += 1
+            } else {
+                entries[id] = item.entry
+                added += 1
+            }
+            var current = progress[id] ?? MangaProgress()
+            current.readChapters.formUnion(item.progress.readChapters)
+            if let at = item.progress.lastReadAt, at > (current.lastReadAt ?? .distantPast) {
+                current.lastReadAt = at
+                current.lastReadChapter = item.progress.lastReadChapter ?? current.lastReadChapter
+            }
+            if current.readingMode == nil { current.readingMode = item.progress.readingMode }
+            progress[id] = current
+        }
+        saveLibrary()
+        saveProgress()
+        return (added, merged)
     }
 
     private func saveLibrary() {

@@ -207,7 +207,7 @@ final class DownloadManager: ObservableObject {
         var completed = 0
         // A few pages at a time: the image downloads overlap, while the extension engine still
         // serializes its own part of each request.
-        let batchSize = 3
+        let batchSize = AppSettings.shared.downloadBatch
         do {
             for start in stride(from: 0, to: pages.count, by: batchSize) {
                 try Task.checkCancellation()
@@ -274,6 +274,10 @@ final class DownloadManager: ObservableObject {
 
 extension Int64 {
     var byteText: String {
-        ByteCountFormatter.string(fromByteCount: self, countStyle: .file)
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        // "0 KB" instead of the spelled-out "Zero KB".
+        formatter.allowsNonnumericFormatting = false
+        return formatter.string(fromByteCount: self)
     }
 }

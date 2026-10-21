@@ -100,7 +100,7 @@ struct ExtensionsView: View {
             ExtensionIcon(url: record.iconURL)
             VStack(alignment: .leading, spacing: 2) {
                 Text(record.name)
-                Text("v\(record.versionName) · \(record.sources.count) fuentes")
+                Text("v\(record.versionName) · \(record.sources.count == 1 ? "1 fuente" : "\(record.sources.count) fuentes")")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

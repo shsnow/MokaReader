@@ -1,6 +1,64 @@
 import Foundation
 import SwiftUI
 
+enum AppTheme: String, CaseIterable, Identifiable {
+    case system, light, dark
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+            case .system: return "Como el sistema"
+            case .light: return "Claro"
+            case .dark: return "Oscuro"
+        }
+    }
+
+    var colorScheme: ColorScheme? {
+        switch self {
+            case .system: return nil
+            case .light: return .light
+            case .dark: return .dark
+        }
+    }
+}
+
+enum ReaderBackground: String, CaseIterable, Identifiable {
+    case black, white, system
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+            case .black: return "Negro"
+            case .white: return "Blanco"
+            case .system: return "Como el sistema"
+        }
+    }
+
+    var color: Color {
+        switch self {
+            case .black: return .black
+            case .white: return .white
+            case .system: return Color(.systemBackground)
+        }
+    }
+}
+
+enum LibrarySort: String, CaseIterable, Identifiable {
+    case recent, title, unread
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+            case .recent: return "Leídos recién"
+            case .title: return "Título"
+            case .unread: return "Sin leer"
+        }
+    }
+}
+
 @MainActor
 final class AppSettings: ObservableObject {
     static let shared = AppSettings()
@@ -17,6 +75,45 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(Array(languages), forKey: "languages") }
     }
 
+    @Published var appTheme: AppTheme {
+        didSet { defaults.set(appTheme.rawValue, forKey: "appTheme") }
+    }
+
+    @Published var gridColumns: Int {
+        didSet { defaults.set(gridColumns, forKey: "gridColumns") }
+    }
+
+    @Published var librarySort: LibrarySort {
+        didSet { defaults.set(librarySort.rawValue, forKey: "librarySort") }
+    }
+
+    @Published var readerBackground: ReaderBackground {
+        didSet { defaults.set(readerBackground.rawValue, forKey: "readerBackground") }
+    }
+
+    /// Webtoon side margin as a fraction of the width per side (0, 0.04 or 0.08).
+    @Published var webtoonPadding: Double {
+        didSet { defaults.set(webtoonPadding, forKey: "webtoonPadding") }
+    }
+
+    /// Off: tapping anywhere only shows or hides the controls.
+    @Published var tapZonesEnabled: Bool {
+        didSet { defaults.set(tapZonesEnabled, forKey: "tapZonesEnabled") }
+    }
+
+    @Published var keepScreenAwake: Bool {
+        didSet { defaults.set(keepScreenAwake, forKey: "keepScreenAwake") }
+    }
+
+    @Published var deleteAfterReading: Bool {
+        didSet { defaults.set(deleteAfterReading, forKey: "deleteAfterReading") }
+    }
+
+    /// Pages fetched at once while downloading a chapter.
+    @Published var downloadBatch: Int {
+        didSet { defaults.set(downloadBatch, forKey: "downloadBatch") }
+    }
+
     private init() {
         // A local, so nothing reads `self` before every stored property is initialized.
         let defaults = UserDefaults.standard
@@ -27,6 +124,18 @@ final class AppSettings: ObservableObject {
         } else {
             languages = ["es", "es-419", "en", "all"]
         }
+        appTheme = AppTheme(rawValue: defaults.string(forKey: "appTheme") ?? "") ?? .system
+        let columns = defaults.integer(forKey: "gridColumns")
+        gridColumns = (2...4).contains(columns) ? columns : 3
+        librarySort = LibrarySort(rawValue: defaults.string(forKey: "librarySort") ?? "") ?? .recent
+        readerBackground = ReaderBackground(rawValue: defaults.string(forKey: "readerBackground") ?? "")
+            ?? .black
+        webtoonPadding = defaults.object(forKey: "webtoonPadding") as? Double ?? 0
+        tapZonesEnabled = defaults.object(forKey: "tapZonesEnabled") as? Bool ?? true
+        keepScreenAwake = defaults.object(forKey: "keepScreenAwake") as? Bool ?? true
+        deleteAfterReading = defaults.bool(forKey: "deleteAfterReading")
+        let batch = defaults.integer(forKey: "downloadBatch")
+        downloadBatch = (1...5).contains(batch) ? batch : 3
     }
 
     func shows(language: String) -> Bool {

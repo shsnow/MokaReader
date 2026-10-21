@@ -14,6 +14,8 @@ struct MangaDetailView: View {
     @State private var expanded = false
     @State private var reader: ReaderContext?
     @State private var newestFirst = true
+    @State private var editingNote = false
+    @State private var noteDraft = ""
 
     init(manga: MangaItem) {
         _manga = State(initialValue: manga)
@@ -106,6 +108,16 @@ struct MangaDetailView: View {
                 .listRowSeparator(.hidden)
             }
 
+            if library.contains(manga), !library.note(for: manga).isEmpty {
+                Text(library.note(for: manga))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.moka.opacity(0.08), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .listRowSeparator(.hidden)
+            }
+
             if let target = continueTarget {
                 Button {
                     open(target)
@@ -137,7 +149,7 @@ struct MangaDetailView: View {
                 }
             } header: {
                 HStack {
-                    Text("\(chapters.count) capítulos")
+                    Text(chapters.count == 1 ? "1 capítulo" : "\(chapters.count) capítulos")
                     Spacer()
                     Button {
                         newestFirst.toggle()
@@ -160,6 +172,14 @@ struct MangaDetailView: View {
                     Image(systemName: modeBinding.wrappedValue.symbol)
                 }
                 downloadMenu
+                if library.contains(manga) {
+                    Button {
+                        noteDraft = library.note(for: manga)
+                        editingNote = true
+                    } label: {
+                        Image(systemName: library.note(for: manga).isEmpty ? "note.text" : "note.text.badge.plus")
+                    }
+                }
                 Button {
                     toggleLibrary()
                 } label: {
@@ -168,6 +188,26 @@ struct MangaDetailView: View {
             }
         }
         .refreshable { await refresh() }
+        .sheet(isPresented: $editingNote) {
+            NavigationStack {
+                TextEditor(text: $noteDraft)
+                    .padding(12)
+                    .navigationTitle("Nota")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Cancelar") { editingNote = false }
+                        }
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Guardar") {
+                                library.setNote(noteDraft, for: manga)
+                                editingNote = false
+                            }
+                        }
+                    }
+            }
+            .presentationDetents([.medium])
+        }
     }
 
     private var downloadMenu: some View {
@@ -185,7 +225,7 @@ struct MangaDetailView: View {
             Button {
                 download(ascending)
             } label: {
-                Label("Todos los capítulos", systemImage: "arrow.down.circle.dotted")
+                Label("Todos los capítulos", systemImage: "arrow.down.to.line")
             }
             Divider()
             Button(role: .destructive) {

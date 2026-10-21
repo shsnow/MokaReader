@@ -156,6 +156,27 @@ actor ImagePipeline {
         )
     }
 
+    // MARK: - Maintenance
+
+    func diskCacheBytes() -> Int64 {
+        var total = Int64(session.configuration.urlCache?.currentDiskUsage ?? 0)
+        if let files = try? FileManager.default.contentsOfDirectory(
+            at: coverDirectory, includingPropertiesForKeys: [.fileSizeKey]
+        ) {
+            for file in files {
+                total += Int64((try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+            }
+        }
+        return total
+    }
+
+    func clearCaches() {
+        memory.removeAllObjects()
+        session.configuration.urlCache?.removeAllCachedResponses()
+        try? FileManager.default.removeItem(at: coverDirectory)
+        coverHeaders.removeAll()
+    }
+
     // MARK: - Helpers
 
     private func download(_ request: URLRequest) async throws -> Data {

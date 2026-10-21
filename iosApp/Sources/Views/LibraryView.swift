@@ -2,10 +2,21 @@ import SwiftUI
 
 struct LibraryView: View {
     @EnvironmentObject private var library: LibraryStore
+    @EnvironmentObject private var settings: AppSettings
     @State private var query = ""
 
     private var items: [LibraryEntry] {
-        let all = library.sortedEntries.filter { ContentFilter.isAllowed($0.manga) }
+        var all = library.sortedEntries.filter { ContentFilter.isAllowed($0.manga) }
+        switch settings.librarySort {
+            case .recent:
+                break
+            case .title:
+                all.sort {
+                    $0.manga.title.localizedCaseInsensitiveCompare($1.manga.title) == .orderedAscending
+                }
+            case .unread:
+                all.sort { library.unreadCount(for: $0) > library.unreadCount(for: $1) }
+        }
         guard !query.isEmpty else { return all }
         return all.filter { $0.manga.title.localizedCaseInsensitiveContains(query) }
     }
@@ -38,6 +49,15 @@ struct LibraryView: View {
             }
         }
         .navigationTitle("Biblioteca")
+        .toolbar {
+            Menu {
+                Picker("Ordenar por", selection: $settings.librarySort) {
+                    ForEach(LibrarySort.allCases) { Text($0.title).tag($0) }
+                }
+            } label: {
+                Image(systemName: "arrow.up.arrow.down")
+            }
+        }
         .navigationDestination(for: MangaItem.self) { manga in
             MangaDetailView(manga: manga)
         }

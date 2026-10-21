@@ -79,7 +79,11 @@ struct MangaGrid<Footer: View>: View {
     var onItemAppear: (MangaItem) -> Void = { _ in }
     @ViewBuilder var footer: () -> Footer
 
-    private let columns = [GridItem(.adaptive(minimum: 104, maximum: 160), spacing: 12)]
+    @EnvironmentObject private var settings: AppSettings
+
+    private var columns: [GridItem] {
+        Array(repeating: GridItem(.flexible(), spacing: 12), count: settings.gridColumns)
+    }
 
     var body: some View {
         ScrollView {

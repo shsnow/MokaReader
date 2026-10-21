@@ -1,0 +1,192 @@
+import SwiftUI
+
+/// Novedades (new chapters across the library) and Historial (what was read, newest first).
+struct ActivityView: View {
+    enum Section: String, CaseIterable, Identifiable {
+        case updates = "Novedades"
+        case history = "Historial"
+        var id: String { rawValue }
+    }
+
+    @EnvironmentObject private var library: LibraryStore
+    @EnvironmentObject private var extensions: ExtensionManager
+    @EnvironmentObject private var updater: LibraryUpdater
+    @State private var section: Section = .updates
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Picker("Sección", selection: $section) {
+                ForEach(Section.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+
+            switch section {
+                case .updates: UpdatesList()
+                case .history: HistoryList()
+            }
+        }
+        .navigationTitle("Actividad")
+        .navigationDestination(for: MangaItem.self) { manga in
+            MangaDetailView(manga: manga)
+        }
+        .toolbar {
+            if section == .updates {
+                if updater.isRefreshing {
+                    Button("Detener") { updater.cancel() }
+                } else {
+                    Button {
+                        updater.refreshAll(library: library, extensions: extensions)
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .disabled(library.entries.isEmpty)
+                }
+            } else if !library.history.isEmpty {
+                Button("Borrar") { library.clearHistory() }
+            }
+        }
+    }
+}
+
+private struct UpdatesList: View {
+    @EnvironmentObject private var library: LibraryStore
+    @EnvironmentObject private var updater: LibraryUpdater
+
+    private struct Day: Identifiable {
+        let date: Date
+        let items: [(manga: MangaItem, chapter: ChapterItem)]
+        var id: Date { date }
+    }
+
+    private var days: [Day] {
+        let calendar = Calendar.current
+        let grouped = Dictionary(grouping: library.latestUploads) { item in
+            calendar.startOfDay(for: item.chapter.date ?? .distantPast)
+        }
+        return grouped
+            .map { Day(date: $0.key, items: $0.value) }
+            .sorted { $0.date > $1.date }
+    }
+
+    var body: some View {
+        List {
+            if updater.isRefreshing {
+                HStack(spacing: 10) {
+                    ProgressView()
+                    Text("Actualizando \(updater.completed + 1) de \(updater.total)…")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            } else if let finished = updater.lastFinished {
+                Text(
+                    updater.newChapters == 0
+                        ? "Sin capítulos nuevos (\(finished.shortText))."
+                        : "\(updater.newChapters) capítulos nuevos."
+                )
+                .font(.footnote)
+                .foregroundStyle(updater.newChapters == 0 ? .secondary : Color.moka)
+            }
+
+            if library.entries.isEmpty {
+                Text("Guarda series en tu biblioteca para ver aquí sus capítulos nuevos.")
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(days) { day in
+                    SwiftUI.Section(day.date.shortText) {
+                        ForEach(day.items, id: \.chapter.url) { item in
+                            NavigationLink(value: item.manga) {
+                                row(item.manga, item.chapter)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .listStyle(.plain)
+    }
+
+    private func row(_ manga: MangaItem, _ chapter: ChapterItem) -> some View {
+        let read = library.isRead(chapter, in: manga)
+        return HStack(spacing: 12) {
+            CoverImage(manga: manga)
+                .frame(width: 40, height: 56)
+                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(manga.title)
+                    .font(.subheadline.weight(read ? .regular : .semibold))
+                    .lineLimit(1)
+                Text(chapter.name)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+            if !read {
+                Circle()
+                    .fill(Color.moka)
+                    .frame(width: 8, height: 8)
+            }
+        }
+    }
+}
+
+private struct HistoryList: View {
+    @EnvironmentObject private var library: LibraryStore
+
+    private struct Day: Identifiable {
+        let date: Date
+        let records: [ReadingRecord]
+        var id: Date { date }
+    }
+
+    private var days: [Day] {
+        let calendar = Calendar.current
+        return Dictionary(grouping: library.history) { calendar.startOfDay(for: $0.date) }
+            .map { Day(date: $0.key, records: $0.value) }
+            .sorted { $0.date > $1.date }
+    }
+
+    var body: some View {
+        Group {
+            if library.history.isEmpty {
+                EmptyStateView(
+                    symbol: "clock",
+                    title: "Sin historial",
+                    message: "Los capítulos que abras van a aparecer aquí."
+                )
+            } else {
+                List {
+                    ForEach(days) { day in
+                        SwiftUI.Section(day.date.shortText) {
+                            ForEach(day.records) { record in
+                                NavigationLink(value: record.manga) {
+                                    HStack(spacing: 12) {
+                                        CoverImage(manga: record.manga)
+                                            .frame(width: 40, height: 56)
+                                            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(record.manga.title)
+                                                .font(.subheadline.weight(.medium))
+                                                .lineLimit(1)
+                                            Text(record.chapterName)
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                                .lineLimit(1)
+                                        }
+                                        Spacer()
+                                        Text(record.date, style: .time)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                .listStyle(.plain)
+            }
+        }
+    }
+}

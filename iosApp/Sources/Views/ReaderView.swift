@@ -45,20 +45,24 @@ struct ReaderView: View {
     private var hasNext: Bool { chapterIndex + 1 < context.chapters.count }
     private var hasPrevious: Bool { chapterIndex > 0 }
 
+    private var background: Color { settings.readerBackground.color }
+    private var isLightBackground: Bool { settings.readerBackground == .white }
+    private var controlColor: Color { isLightBackground ? .black : .white }
+
     var body: some View {
         GeometryReader { geometry in
             ZStack {
-                Color.black.ignoresSafeArea()
+                background.ignoresSafeArea()
 
                 if isLoading && pages.isEmpty {
                     ProgressView("Cargando capítulo…")
-                        .tint(.white)
-                        .foregroundStyle(.white)
+                        .tint(controlColor)
+                        .foregroundStyle(controlColor)
                 } else if let error, pages.isEmpty {
                     VStack(spacing: 14) {
                         Text(error)
                             .multilineTextAlignment(.center)
-                            .foregroundStyle(.white)
+                            .foregroundStyle(controlColor)
                         Button("Reintentar") { Task { await loadChapter() } }
                             .buttonStyle(.borderedProminent)
                     }
@@ -79,11 +83,19 @@ struct ReaderView: View {
             mode = library.readingMode(for: context.manga, fallback: settings.defaultReadingMode)
             await loadChapter()
         }
+        .onAppear {
+            if settings.keepScreenAwake { UIApplication.shared.isIdleTimerDisabled = true }
+        }
+        .onDisappear {
+            UIApplication.shared.isIdleTimerDisabled = false
+        }
     }
 
     // MARK: - Webtoon
 
-    private func webtoon(width: CGFloat) -> some View {
+    private func webtoon(width fullWidth: CGFloat) -> some View {
+        // The side margin some long strips read better with.
+        let width = fullWidth * (1 - 2 * settings.webtoonPadding)
         let decodeWidth = width * displayScale * 1.5
         let scale = min(max(zoom * pinch, 1), 3)
         // Horizontal room the zoomed strip has on each side.
@@ -109,6 +121,7 @@ struct ReaderView: View {
                 chapterEnd
                     .frame(minHeight: 260)
             }
+            .frame(maxWidth: .infinity)
         }
         .id(chapter.url)
         // Zoom scales the visible viewport around the screen centre; the strip keeps its layout,
@@ -190,6 +203,10 @@ struct ReaderView: View {
     /// Edge taps turn pages; the middle of the screen shows or hides the controls.
     /// In right-to-left mode the left edge moves forward, like a printed manga.
     private func handlePagedTap(_ position: CGFloat) {
+        guard settings.tapZonesEnabled else {
+            withAnimation(.easeInOut(duration: 0.2)) { showOverlay.toggle() }
+            return
+        }
         let forward: Bool
         if position < 0.3 {
             forward = mode == .rightToLeft
@@ -225,7 +242,7 @@ struct ReaderView: View {
         VStack(spacing: 16) {
             Text("Terminaste \(chapter.name)")
                 .font(.headline)
-                .foregroundStyle(.white)
+                .foregroundStyle(controlColor)
             if hasNext {
                 Button {
                     Task { await go(to: chapterIndex + 1) }
@@ -237,7 +254,7 @@ struct ReaderView: View {
             } else {
                 Text("No hay más capítulos por ahora.")
                     .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.7))
+                    .foregroundStyle(controlColor.opacity(0.7))
             }
         }
         .padding(32)
@@ -385,6 +402,9 @@ struct ReaderView: View {
 
     private func markRead() {
         library.setRead(true, chapter: chapter, in: context.manga)
+        if settings.deleteAfterReading && isOffline {
+            downloads.delete(manga: context.manga, chapter: chapter)
+        }
     }
 }
 
@@ -425,12 +445,12 @@ struct ReaderPageView: View {
                     Button("Reintentar") { attempt += 1 }
                         .buttonStyle(.bordered)
                 }
-                .foregroundStyle(.white)
+                .foregroundStyle(.gray)
                 .padding()
                 .frame(width: width, height: fitHeight ?? width * 1.2)
             } else {
                 ProgressView()
-                    .tint(.white)
+                    .tint(.gray)
                     .frame(width: width, height: fitHeight ?? width * 1.4)
             }
         }
