@@ -134,6 +134,7 @@ private struct UpdatesList: View {
 
 private struct HistoryList: View {
     @EnvironmentObject private var library: LibraryStore
+    @State private var query = ""
 
     private struct Day: Identifiable {
         let date: Date
@@ -141,9 +142,18 @@ private struct HistoryList: View {
         var id: Date { date }
     }
 
+    private var filtered: [ReadingRecord] {
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return library.history }
+        return library.history.filter {
+            $0.manga.title.localizedCaseInsensitiveContains(trimmed)
+                || $0.chapterName.localizedCaseInsensitiveContains(trimmed)
+        }
+    }
+
     private var days: [Day] {
         let calendar = Calendar.current
-        return Dictionary(grouping: library.history) { calendar.startOfDay(for: $0.date) }
+        return Dictionary(grouping: filtered) { calendar.startOfDay(for: $0.date) }
             .map { Day(date: $0.key, records: $0.value) }
             .sorted { $0.date > $1.date }
     }
@@ -181,11 +191,17 @@ private struct HistoryList: View {
                                             .foregroundStyle(.secondary)
                                     }
                                 }
+                                .swipeActions {
+                                    Button("Borrar", role: .destructive) {
+                                        library.deleteHistoryRecord(record)
+                                    }
+                                }
                             }
                         }
                     }
                 }
                 .listStyle(.plain)
+                .searchable(text: $query, prompt: "Buscar en el historial")
             }
         }
     }

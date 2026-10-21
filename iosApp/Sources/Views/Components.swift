@@ -44,6 +44,7 @@ struct CoverImage: View {
 struct MangaCell: View {
     let manga: MangaItem
     var badge: Int = 0
+    var selected: Bool? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -52,7 +53,10 @@ struct MangaCell: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .strokeBorder(.primary.opacity(0.08))
+                        .strokeBorder(
+                            selected == true ? Color.moka : Color.primary.opacity(0.08),
+                            lineWidth: selected == true ? 2.5 : 1
+                        )
                 )
                 .overlay(alignment: .topLeading) {
                     if badge > 0 {
@@ -65,6 +69,16 @@ struct MangaCell: View {
                             .padding(6)
                     }
                 }
+                .overlay(alignment: .topTrailing) {
+                    if let selected {
+                        Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                            .font(.title3)
+                            .symbolRenderingMode(.palette)
+                            .foregroundStyle(.white, selected ? Color.moka : Color.black.opacity(0.35))
+                            .padding(6)
+                    }
+                }
+                .opacity(selected == false ? 0.75 : 1)
             Text(manga.title)
                 .font(.caption.weight(.medium))
                 .lineLimit(2)
@@ -77,6 +91,8 @@ struct MangaGrid<Footer: View>: View {
     let items: [MangaItem]
     var badge: (MangaItem) -> Int = { _ in 0 }
     var onItemAppear: (MangaItem) -> Void = { _ in }
+    /// Non-nil puts the grid in selection mode: taps toggle membership instead of navigating.
+    var selection: Binding<Set<String>>? = nil
     @ViewBuilder var footer: () -> Footer
 
     @EnvironmentObject private var settings: AppSettings
@@ -89,11 +105,25 @@ struct MangaGrid<Footer: View>: View {
         ScrollView {
             LazyVGrid(columns: columns, spacing: 16) {
                 ForEach(items) { manga in
-                    NavigationLink(value: manga) {
-                        MangaCell(manga: manga, badge: badge(manga))
+                    if let selection {
+                        let isSelected = selection.wrappedValue.contains(manga.id)
+                        Button {
+                            if isSelected {
+                                selection.wrappedValue.remove(manga.id)
+                            } else {
+                                selection.wrappedValue.insert(manga.id)
+                            }
+                        } label: {
+                            MangaCell(manga: manga, badge: badge(manga), selected: isSelected)
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        NavigationLink(value: manga) {
+                            MangaCell(manga: manga, badge: badge(manga))
+                        }
+                        .buttonStyle(.plain)
+                        .onAppear { onItemAppear(manga) }
                     }
-                    .buttonStyle(.plain)
-                    .onAppear { onItemAppear(manga) }
                 }
             }
             .padding(.horizontal)

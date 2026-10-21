@@ -32,6 +32,7 @@ struct ReaderView: View {
     @GestureState private var pinch: CGFloat = 1
     @State private var pan: CGFloat = 0
     @GestureState private var panDrag: CGFloat = 0
+    @State private var sessionStart = Date()
 
     /// How many pages ahead to load before they come on screen.
     private let prefetchCount = 4
@@ -84,10 +85,12 @@ struct ReaderView: View {
             await loadChapter()
         }
         .onAppear {
+            sessionStart = Date()
             if settings.keepScreenAwake { UIApplication.shared.isIdleTimerDisabled = true }
         }
         .onDisappear {
             UIApplication.shared.isIdleTimerDisabled = false
+            library.addReadingTime(Date().timeIntervalSince(sessionStart), to: context.manga)
         }
     }
 

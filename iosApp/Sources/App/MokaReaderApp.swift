@@ -43,19 +43,26 @@ struct MokaReaderApp: App {
 
 struct RootView: View {
     @EnvironmentObject private var extensions: ExtensionManager
+    /// The app opens where it was left.
+    @AppStorage("lastTab") private var selectedTab = 0
 
     var body: some View {
-        TabView {
+        TabView(selection: $selectedTab) {
             NavigationStack { LibraryView() }
                 .tabItem { Label("Biblioteca", systemImage: "books.vertical") }
+                .tag(0)
             NavigationStack { BrowseView() }
                 .tabItem { Label("Explorar", systemImage: "safari") }
+                .tag(1)
             NavigationStack { ActivityView() }
                 .tabItem { Label("Actividad", systemImage: "bolt") }
+                .tag(2)
             NavigationStack { ExtensionsView() }
                 .tabItem { Label("Extensiones", systemImage: "puzzlepiece.extension") }
+                .tag(3)
             NavigationStack { SettingsView() }
                 .tabItem { Label("Ajustes", systemImage: "gearshape") }
+                .tag(4)
         }
         .alert(
             "Algo salió mal",

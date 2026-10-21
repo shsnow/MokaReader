@@ -16,6 +16,10 @@ struct MangaDetailView: View {
     @State private var newestFirst = true
     @State private var editingNote = false
     @State private var noteDraft = ""
+    @State private var selectingChapters = false
+    @State private var selectedChapters: Set<String> = []
+    @State private var chapterQuery = ""
+    @State private var siteURL: URL?
 
     init(manga: MangaItem) {
         _manga = State(initialValue: manga)
@@ -28,10 +32,23 @@ struct MangaDetailView: View {
     /// Sources list chapters newest first, the same convention as Mihon.
     private var ascending: [ChapterItem] { Array(chapters.reversed()) }
 
-    private var displayed: [ChapterItem] { newestFirst ? chapters : ascending }
+    private var displayed: [ChapterItem] {
+        let ordered = newestFirst ? chapters : ascending
+        let query = chapterQuery.trimmingCharacters(in: .whitespaces)
+        guard !query.isEmpty else { return ordered }
+        return ordered.filter {
+            $0.name.localizedCaseInsensitiveContains(query)
+                || $0.number.map { number in String(format: "%g", number).contains(query) } == true
+        }
+    }
 
     private var unread: [ChapterItem] {
         ascending.filter { !library.isRead($0, in: manga) }
+    }
+
+    /// The selected chapters, oldest first, so batch downloads queue in reading order.
+    private var selectedItems: [ChapterItem] {
+        ascending.filter { selectedChapters.contains($0.url) }
     }
 
     private var continueTarget: ChapterItem? {
@@ -149,12 +166,27 @@ struct MangaDetailView: View {
                 }
             } header: {
                 HStack {
-                    Text(chapters.count == 1 ? "1 capítulo" : "\(chapters.count) capítulos")
-                    Spacer()
-                    Button {
-                        newestFirst.toggle()
-                    } label: {
-                        Image(systemName: newestFirst ? "arrow.down" : "arrow.up")
+                    if selectingChapters {
+                        Text("\(selectedChapters.count) seleccionados")
+                        Spacer()
+                        Button(selectedChapters.count == chapters.count ? "Ninguno" : "Todos") {
+                            selectedChapters = selectedChapters.count == chapters.count
+                                ? []
+                                : Set(chapters.map(\.url))
+                        }
+                        Button("Listo") {
+                            selectingChapters = false
+                            selectedChapters = []
+                        }
+                        .fontWeight(.semibold)
+                    } else {
+                        Text(chapters.count == 1 ? "1 capítulo" : "\(chapters.count) capítulos")
+                        Spacer()
+                        Button {
+                            newestFirst.toggle()
+                        } label: {
+                            Image(systemName: newestFirst ? "arrow.down" : "arrow.up")
+                        }
                     }
                 }
             }
@@ -185,9 +217,31 @@ struct MangaDetailView: View {
                 } label: {
                     Image(systemName: library.contains(manga) ? "bookmark.fill" : "bookmark")
                 }
+                if let siteURL {
+                    Menu {
+                        Link(destination: siteURL) {
+                            Label("Abrir en el sitio", systemImage: "safari")
+                        }
+                        ShareLink(item: siteURL) {
+                            Label("Compartir enlace", systemImage: "square.and.arrow.up")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                }
             }
         }
         .refreshable { await refresh() }
+        .searchable(
+            text: $chapterQuery,
+            placement: .navigationBarDrawer(displayMode: .automatic),
+            prompt: "Buscar capítulo"
+        )
+        .safeAreaInset(edge: .bottom) {
+            if selectingChapters {
+                chapterSelectionBar
+            }
+        }
         .sheet(isPresented: $editingNote) {
             NavigationStack {
                 TextEditor(text: $noteDraft)
@@ -228,6 +282,11 @@ struct MangaDetailView: View {
                 Label("Todos los capítulos", systemImage: "arrow.down.to.line")
             }
             Divider()
+            Button {
+                selectingChapters = true
+            } label: {
+                Label("Seleccionar capítulos", systemImage: "checkmark.circle")
+            }
             Button(role: .destructive) {
                 downloads.deleteAll(mangaId: manga.id)
             } label: {
@@ -269,6 +328,11 @@ struct MangaDetailView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                if let time = library.readingTimeText(for: manga) {
+                    Label(time, systemImage: "book")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
             Spacer(minLength: 0)
         }
@@ -277,10 +341,23 @@ struct MangaDetailView: View {
     private func chapterRow(_ chapter: ChapterItem) -> some View {
         let read = library.isRead(chapter, in: manga)
         let state = downloads.state(manga: manga, chapter: chapter)
+        let isSelected = selectedChapters.contains(chapter.url)
         return Button {
-            open(chapter)
+            if selectingChapters {
+                if isSelected {
+                    selectedChapters.remove(chapter.url)
+                } else {
+                    selectedChapters.insert(chapter.url)
+                }
+            } else {
+                open(chapter)
+            }
         } label: {
             HStack(spacing: 10) {
+                if selectingChapters {
+                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(isSelected ? Color.moka : Color.secondary)
+                }
                 VStack(alignment: .leading, spacing: 3) {
                     Text(chapter.name)
                         .font(.subheadline.weight(read ? .regular : .medium))
@@ -293,28 +370,81 @@ struct MangaDetailView: View {
                     .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                downloadIndicator(state)
+                if state == .none, !selectingChapters, installed != nil {
+                    Image(systemName: "arrow.down.circle")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                        .onTapGesture { download([chapter]) }
+                } else {
+                    downloadIndicator(state)
+                }
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .swipeActions(edge: .trailing) {
-            Button(read ? "No leído" : "Leído") {
-                library.setRead(!read, chapter: chapter, in: manga)
+            if !selectingChapters {
+                Button(read ? "No leído" : "Leído") {
+                    library.setRead(!read, chapter: chapter, in: manga)
+                }
+                .tint(read ? .gray : .moka)
             }
-            .tint(read ? .gray : .moka)
         }
         .swipeActions(edge: .leading) {
-            if state == .downloaded {
-                Button("Borrar", role: .destructive) {
+            if !selectingChapters {
+                if state == .downloaded {
+                    Button("Borrar", role: .destructive) {
+                        downloads.delete(manga: manga, chapter: chapter)
+                    }
+                } else {
+                    Button("Descargar") {
+                        download([chapter])
+                    }
+                    .tint(.blue)
+                }
+            }
+        }
+    }
+
+    private var chapterSelectionBar: some View {
+        HStack(spacing: 4) {
+            selectionBarButton("Descargar", symbol: "arrow.down.circle") {
+                download(selectedItems.filter { !downloads.isDownloaded(manga: manga, chapter: $0) })
+            }
+            selectionBarButton("Leído", symbol: "checkmark.circle") {
+                library.setRead(true, chapterURLs: selectedItems.map(\.url), in: manga)
+            }
+            selectionBarButton("No leído", symbol: "circle") {
+                library.setRead(false, chapterURLs: selectedItems.map(\.url), in: manga)
+            }
+            selectionBarButton("Borrar desc.", symbol: "trash", role: .destructive) {
+                for chapter in selectedItems {
                     downloads.delete(manga: manga, chapter: chapter)
                 }
-            } else {
-                Button("Descargar") {
-                    download([chapter])
-                }
-                .tint(.blue)
             }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(.bar)
+        .disabled(selectedChapters.isEmpty)
+    }
+
+    private func selectionBarButton(
+        _ title: String,
+        symbol: String,
+        role: ButtonRole? = nil,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(role: role, action: action) {
+            VStack(spacing: 3) {
+                Image(systemName: symbol)
+                    .font(.body)
+                Text(title)
+                    .font(.caption2)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 4)
+            .contentShape(Rectangle())
         }
     }
 
@@ -389,6 +519,9 @@ struct MangaDetailView: View {
             chapters = result.chapters
             error = nil
             library.refresh(result.manga, chapters: result.chapters)
+            if siteURL == nil {
+                siteURL = try? await JVMEngine.shared.siteURL(of: manga, installed: installed)
+            }
         } catch {
             // Offline with a saved copy: keep showing it instead of an error.
             if chapters.isEmpty { self.error = error.localizedDescription }

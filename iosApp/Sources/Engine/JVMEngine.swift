@@ -283,6 +283,42 @@ final class JVMEngine: @unchecked Sendable {
         }
     }
 
+    /// Clears the cookie jar of one source (sign-ins, Cloudflare clearances).
+    func clearCookies(source: SourceInfo, installed: InstalledExtension) async throws {
+        _ = try await onQueue(loading: installed) { runtime -> ExtensionHostResponse in
+            try Self.checked(
+                runtime.dispatch(
+                    ExtensionHostRequest(
+                        operation: "clearCookies",
+                        extensionId: installed.id,
+                        sourceId: String(source.id)
+                    )
+                )
+            )
+        }
+    }
+
+    /// The absolute web address of the series on its site, resolved by the extension.
+    func siteURL(of manga: MangaItem, installed: InstalledExtension) async throws -> URL {
+        let response = try await onQueue(loading: installed) { runtime -> ExtensionHostResponse in
+            try Self.checked(
+                runtime.dispatch(
+                    ExtensionHostRequest(
+                        operation: "getMangaUrl",
+                        extensionId: installed.id,
+                        sourceId: String(manga.sourceId),
+                        mangaURL: manga.url,
+                        mangaTitle: manga.title
+                    )
+                )
+            )
+        }
+        guard let text = response.result, let url = URL(string: text), url.scheme != nil else {
+            throw EngineError.host("La fuente no entregó la dirección de la serie.")
+        }
+        return url
+    }
+
     // MARK: - Images
 
     /// The URL and headers (Referer, cookies, user agent) the source would use for an image.

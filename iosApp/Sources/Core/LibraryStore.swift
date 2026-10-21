@@ -1,11 +1,20 @@
 import Combine
 import Foundation
+// Array.move(fromOffsets:toOffset:) is declared in SwiftUI, not the standard library.
+import SwiftUI
 
 struct LibraryEntry: Codable, Hashable {
     var manga: MangaItem
     var chapters: [ChapterItem]
     var addedAt: Date
     var note: String? = nil
+    /// Ids of the user's categories this series belongs to.
+    var categories: [String]? = nil
+}
+
+struct LibraryCategory: Codable, Hashable, Identifiable {
+    var id: String
+    var name: String
 }
 
 /// One "opened a chapter" event, newest first. The manga snapshot lets History navigate
@@ -29,6 +38,8 @@ struct MangaProgress: Codable, Hashable {
     var lastReadChapter: String?
     var lastReadAt: Date?
     var readingMode: ReadingMode?
+    /// Accumulated seconds spent in the reader for this series.
+    var readSeconds: Double? = nil
 }
 
 /// The user's library and reading progress. Progress is kept for every manga opened, not only
@@ -40,16 +51,19 @@ final class LibraryStore: ObservableObject {
     @Published private(set) var entries: [String: LibraryEntry]
     @Published private(set) var progress: [String: MangaProgress]
     @Published private(set) var history: [ReadingRecord]
+    @Published private(set) var categories: [LibraryCategory]
 
     private static let libraryFile = "library.json"
     private static let progressFile = "progress.json"
     private static let historyFile = "history.json"
+    private static let categoriesFile = "categories.json"
     private static let historyLimit = 300
 
     private init() {
         entries = Storage.load([String: LibraryEntry].self, from: Self.libraryFile) ?? [:]
         progress = Storage.load([String: MangaProgress].self, from: Self.progressFile) ?? [:]
         history = Storage.load([ReadingRecord].self, from: Self.historyFile) ?? []
+        categories = Storage.load([LibraryCategory].self, from: Self.categoriesFile) ?? []
     }
 
     var sortedEntries: [LibraryEntry] {
@@ -138,6 +152,61 @@ final class LibraryStore: ObservableObject {
         Storage.save(history, to: Self.historyFile)
     }
 
+    func deleteHistoryRecord(_ record: ReadingRecord) {
+        history.removeAll { $0.id == record.id }
+        Storage.save(history, to: Self.historyFile)
+    }
+
+    // MARK: - Reading time
+
+    func addReadingTime(_ seconds: TimeInterval, to manga: MangaItem) {
+        guard seconds >= 5 else { return }
+        if UserDefaults.standard.object(forKey: "readingSince") == nil {
+            UserDefaults.standard.set(Date(), forKey: "readingSince")
+        }
+        var value = progress[manga.id] ?? MangaProgress()
+        value.readSeconds = (value.readSeconds ?? 0) + seconds
+        progress[manga.id] = value
+        saveProgress()
+    }
+
+    /// When reading-time tracking started on this device.
+    var readingSince: Date? {
+        UserDefaults.standard.object(forKey: "readingSince") as? Date
+    }
+
+    var totalReadSeconds: Double {
+        progress.values.reduce(0) { $0 + ($1.readSeconds ?? 0) }
+    }
+
+    /// Series ranked by time read, most first. Series no longer in the library are looked up
+    /// in the history snapshots so their title and cover still show.
+    var readingRanking: [(manga: MangaItem, seconds: Double)] {
+        let snapshots = Dictionary(history.map { ($0.manga.id, $0.manga) }) { first, _ in first }
+        return progress
+            .compactMap { id, value -> (manga: MangaItem, seconds: Double)? in
+                guard let seconds = value.readSeconds, seconds >= 60 else { return nil }
+                guard let manga = entries[id]?.manga ?? snapshots[id] else { return nil }
+                return (manga: manga, seconds: seconds)
+            }
+            .sorted { $0.seconds > $1.seconds }
+    }
+
+    static func timeText(_ seconds: Double) -> String {
+        let minutes = Int(seconds) / 60
+        if minutes < 60 { return "\(minutes) m" }
+        return "\(minutes / 60) h \(minutes % 60) m"
+    }
+
+    /// "1 h 37 m" for the series, or nil under a minute.
+    func readingTimeText(for manga: MangaItem) -> String? {
+        let seconds = progress[manga.id]?.readSeconds ?? 0
+        guard seconds >= 60 else { return nil }
+        let minutes = Int(seconds) / 60
+        if minutes < 60 { return "\(minutes) m" }
+        return "\(minutes / 60) h \(minutes % 60) m"
+    }
+
     func note(for manga: MangaItem) -> String {
         entries[manga.id]?.note ?? ""
     }
@@ -170,6 +239,103 @@ final class LibraryStore: ObservableObject {
         value.readingMode = mode
         progress[manga.id] = value
         saveProgress()
+    }
+
+    // MARK: - Categories
+
+    @discardableResult
+    func addCategory(named name: String) -> LibraryCategory? {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if let existing = categories.first(where: {
+            $0.name.localizedCaseInsensitiveCompare(trimmed) == .orderedSame
+        }) {
+            return existing
+        }
+        let category = LibraryCategory(id: UUID().uuidString, name: trimmed)
+        categories.append(category)
+        saveCategories()
+        return category
+    }
+
+    func renameCategory(_ id: String, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let index = categories.firstIndex(where: { $0.id == id }) else { return }
+        categories[index].name = trimmed
+        saveCategories()
+    }
+
+    func deleteCategory(_ id: String) {
+        categories.removeAll { $0.id == id }
+        saveCategories()
+        for (key, entry) in entries where entry.categories?.contains(id) == true {
+            var updated = entry
+            updated.categories?.removeAll { $0 == id }
+            entries[key] = updated
+        }
+        saveLibrary()
+    }
+
+    func moveCategories(from offsets: IndexSet, to destination: Int) {
+        categories.move(fromOffsets: offsets, toOffset: destination)
+        saveCategories()
+    }
+
+    func isInCategory(_ entryId: String, _ categoryId: String) -> Bool {
+        entries[entryId]?.categories?.contains(categoryId) ?? false
+    }
+
+    /// Adds the category to every given entry; if all of them already have it, removes it instead.
+    func toggleCategory(_ categoryId: String, forEntries ids: [String]) {
+        let present = ids.filter { isInCategory($0, categoryId) }
+        let adding = present.count != ids.count
+        for id in ids {
+            guard var entry = entries[id] else { continue }
+            var set = entry.categories ?? []
+            set.removeAll { $0 == categoryId }
+            if adding { set.append(categoryId) }
+            entry.categories = set.isEmpty ? nil : set
+            entries[id] = entry
+        }
+        saveLibrary()
+    }
+
+    // MARK: - Bulk actions
+
+    /// Marks every chapter of the given entries read or unread, saving once.
+    func bulkSetRead(_ read: Bool, entryIds: [String]) {
+        for id in entryIds {
+            guard let entry = entries[id] else { continue }
+            var value = progress[id] ?? MangaProgress()
+            if read {
+                value.readChapters.formUnion(entry.chapters.map(\.url))
+            } else {
+                value.readChapters = []
+            }
+            progress[id] = value
+        }
+        saveProgress()
+    }
+
+    /// Marks the given chapters of one series, saving once.
+    func setRead(_ read: Bool, chapterURLs: [String], in manga: MangaItem) {
+        var value = progress[manga.id] ?? MangaProgress()
+        if read {
+            value.readChapters.formUnion(chapterURLs)
+        } else {
+            value.readChapters.subtract(chapterURLs)
+        }
+        progress[manga.id] = value
+        saveProgress()
+    }
+
+    func removeEntries(ids: [String]) {
+        for id in ids { entries[id] = nil }
+        saveLibrary()
+    }
+
+    private func saveCategories() {
+        Storage.save(categories, to: Self.categoriesFile)
     }
 
     /// Merges a Mihon backup in one pass: existing read chapters are kept, the furthest

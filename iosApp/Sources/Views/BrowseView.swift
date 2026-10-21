@@ -3,6 +3,8 @@ import SwiftUI
 struct BrowseView: View {
     @EnvironmentObject private var extensions: ExtensionManager
     @EnvironmentObject private var settings: AppSettings
+    @State private var globalQuery = ""
+    @State private var submittedGlobal = ""
 
     private var visibleSources: [SourceInfo] {
         extensions.installed
@@ -37,6 +39,8 @@ struct BrowseView: View {
                     title: "Ninguna fuente en tus idiomas",
                     message: "Cambia los idiomas visibles en Ajustes."
                 )
+            } else if !submittedGlobal.isEmpty {
+                GlobalSearchResults(query: submittedGlobal, sources: visibleSources)
             } else {
                 List {
                     ForEach(groups) { group in
@@ -55,6 +59,13 @@ struct BrowseView: View {
             }
         }
         .navigationTitle("Explorar")
+        .searchable(text: $globalQuery, prompt: "Buscar en todas tus fuentes")
+        .onSubmit(of: .search) {
+            submittedGlobal = globalQuery.trimmingCharacters(in: .whitespaces)
+        }
+        .onChange(of: globalQuery) { value in
+            if value.isEmpty { submittedGlobal = "" }
+        }
         .navigationDestination(for: SourceRef.self) { ref in
             SourceBrowseView(source: ref.source)
         }
@@ -177,6 +188,121 @@ struct SourceBrowseView: View {
         } catch {
             self.error = error.localizedDescription
             hasNextPage = false
+        }
+    }
+}
+
+/// One search, every installed source: results arrive source by source, since the extension
+/// engine answers one request at a time.
+private struct GlobalSearchResults: View {
+    let query: String
+    let sources: [SourceInfo]
+
+    @EnvironmentObject private var extensions: ExtensionManager
+
+    private enum SourceResult {
+        case loading
+        case done([MangaItem])
+        case failed(String)
+    }
+
+    @State private var results: [Int64: SourceResult] = [:]
+
+    /// A dozen sources at ~1–3 s each is already a long wait; beyond that it stops being a search.
+    private var searched: [SourceInfo] { Array(sources.prefix(12)) }
+
+    var body: some View {
+        List {
+            if sources.count > searched.count {
+                Text("Buscando en las primeras \(searched.count) fuentes. Filtra idiomas en Ajustes para acotar.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(searched) { source in
+                Section {
+                    row(for: source)
+                } header: {
+                    HStack(spacing: 8) {
+                        ExtensionIcon(url: extensions.extensionFor(sourceId: source.id)?.iconURL)
+                            .frame(width: 20, height: 20)
+                        Text(source.name)
+                        Spacer()
+                        NavigationLink(value: SourceRef(source: source)) {
+                            Text("Ver más")
+                                .font(.caption)
+                        }
+                    }
+                }
+            }
+        }
+        .listStyle(.plain)
+        .task(id: query) {
+            results = [:]
+            for source in searched {
+                if Task.isCancelled { return }
+                guard let installed = extensions.extensionFor(sourceId: source.id) else { continue }
+                results[source.id] = .loading
+                do {
+                    let page = try await JVMEngine.shared.mangaPage(
+                        .search(query), source: source, installed: installed, page: 1
+                    )
+                    if Task.isCancelled { return }
+                    results[source.id] = .done(Array(ContentFilter.allowed(page.items).prefix(9)))
+                } catch {
+                    if Task.isCancelled { return }
+                    results[source.id] = .failed(error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func row(for source: SourceInfo) -> some View {
+        switch results[source.id] {
+            case nil:
+                Text("En cola…")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            case .loading:
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("Buscando…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            case .failed(let message):
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            case .done(let items):
+                if items.isEmpty {
+                    Text("Sin resultados")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(alignment: .top, spacing: 10) {
+                            ForEach(items) { manga in
+                                NavigationLink(value: manga) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        CoverImage(manga: manga)
+                                            .frame(width: 92, height: 138)
+                                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                        Text(manga.title)
+                                            .font(.caption2)
+                                            .lineLimit(2)
+                                            .foregroundStyle(.primary)
+                                            .frame(width: 92, alignment: .leading)
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 0))
+                }
         }
     }
 }

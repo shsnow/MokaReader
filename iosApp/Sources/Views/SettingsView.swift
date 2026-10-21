@@ -15,6 +15,8 @@ struct SettingsView: View {
     @State private var exportDocument: TachibkDocument?
     @State private var exportError: String?
     @State private var cacheBytes: Int64 = 0
+    @State private var clearingCookies = false
+    @State private var cookiesResult: String?
 
     private let commonLanguages = ["all", "es", "es-419", "en", "pt-BR", "fr", "it", "de", "ja", "ko", "zh"]
 
@@ -42,6 +44,7 @@ struct SettingsView: View {
                 }
                 Toggle("Zonas de toque para pasar página", isOn: $settings.tapZonesEnabled)
                 Toggle("Mantener la pantalla encendida", isOn: $settings.keepScreenAwake)
+                NavigationLink("Estadísticas de lectura") { InsightsView() }
             } header: {
                 Text("Lectura")
             } footer: {
@@ -55,6 +58,16 @@ struct SettingsView: View {
                     Text("4").tag(4)
                 }
                 .pickerStyle(.segmented)
+                NavigationLink {
+                    CategoriesView()
+                } label: {
+                    HStack {
+                        Text("Categorías")
+                        Spacer()
+                        Text(library.categories.isEmpty ? "Ninguna" : "\(library.categories.count)")
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
 
             Section("Apariencia") {
@@ -143,6 +156,28 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section {
+                Button {
+                    clearCookies()
+                } label: {
+                    HStack {
+                        Text("Limpiar cookies de las fuentes")
+                        Spacer()
+                        if clearingCookies {
+                            ProgressView()
+                        } else if let cookiesResult {
+                            Text(cookiesResult)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .disabled(clearingCookies || extensions.installed.isEmpty)
+            } header: {
+                Text("Avanzado")
+            } footer: {
+                Text("Borra inicios de sesión y permisos guardados de los sitios. Útil cuando una fuente se queda pegada.")
+            }
+
             Section("Motor de extensiones") {
                 HStack {
                     Text("Estado")
@@ -229,6 +264,22 @@ struct SettingsView: View {
             } catch {
                 importError = error.localizedDescription
             }
+        }
+    }
+
+    private func clearCookies() {
+        clearingCookies = true
+        cookiesResult = nil
+        Task {
+            defer { clearingCookies = false }
+            var cleared = 0
+            for installed in extensions.installed {
+                guard let source = installed.sources.first else { continue }
+                if (try? await JVMEngine.shared.clearCookies(source: source, installed: installed)) != nil {
+                    cleared += 1
+                }
+            }
+            cookiesResult = cleared == 0 ? "Sin cambios" : "Listo (\(cleared))"
         }
     }
 
