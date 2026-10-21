@@ -152,9 +152,24 @@ jobs:
           restore-keys: deriveddata-archive-
 
       - name: Preparar API key de App Store Connect
+        env:
+          KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
         run: |
           mkdir -p ~/private_keys
-          echo "${{ secrets.ASC_KEY_P8_BASE64 }}" | base64 --decode > ~/private_keys/AuthKey.p8
+          fail=0
+          [ -n "$TEAM_ID" ] || { echo "::error::Falta el secret APPLE_TEAM_ID"; fail=1; }
+          [ ${#TEAM_ID} -eq 10 ] || { echo "::error::APPLE_TEAM_ID debe tener 10 caracteres (tiene ${#TEAM_ID})"; fail=1; }
+          [ ${#KEY_ID} -eq 10 ] || { echo "::error::ASC_KEY_ID debe tener 10 caracteres (tiene ${#KEY_ID}). ¿Lo cambiaste por el Issuer ID?"; fail=1; }
+          echo "$ISSUER_ID" | grep -Eq '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' \
+            || { echo "::error::ASC_ISSUER_ID no tiene formato UUID (xxxxxxxx-xxxx-...). ¿Lo cambiaste por el Key ID?"; fail=1; }
+          echo "$KEY_P8_BASE64" | tr -d ' \r\n' | base64 --decode > ~/private_keys/AuthKey.p8 2>/dev/null \
+            || { echo "::error::ASC_KEY_P8_BASE64 no es base64 válido"; fail=1; }
+          grep -q "BEGIN PRIVATE KEY" ~/private_keys/AuthKey.p8 \
+            || { echo "::error::ASC_KEY_P8_BASE64 no decodifica a un archivo .p8 (falta BEGIN PRIVATE KEY)"; fail=1; }
+          [ $fail -eq 0 ] && echo "Secrets OK: team ${TEAM_ID:0:3}…, key ${KEY_ID:0:3}…"
+          exit $fail
 
       # Build numbers 1 and 2 of this App Store Connect record were used by the TachiyomiAZ
       # test builds, so MokaReader's start above them.
