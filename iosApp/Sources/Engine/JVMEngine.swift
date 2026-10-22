@@ -34,7 +34,7 @@ enum EngineError: LocalizedError {
     static func readable(_ message: String) -> String {
         let lowered = message.lowercased()
         if lowered.contains("cloudflare") {
-            return "El sitio pidió una verificación de Cloudflare. MokaReader todavía no puede resolverla."
+            return "El sitio pidió una verificación de Cloudflare. Wizard Cat Reader todavía no puede resolverla."
         }
         return message
     }

@@ -48,7 +48,7 @@ targets:
       path: Sources/Info.plist
       properties:
         CFBundleDevelopmentRegion: es
-        CFBundleDisplayName: MokaReader
+        CFBundleDisplayName: "Wizard Cat Reader"
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         CFBundleIconName: AppIcon
@@ -68,7 +68,7 @@ targets:
         # Extension sources and self-hosted servers (Komga) can be any host the user adds.
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
-        NSLocalNetworkUsageDescription: MokaReader se conecta a servidores de manga propios, como Komga, en tu red local.
+        NSLocalNetworkUsageDescription: Wizard Cat Reader se conecta a servidores de manga propios, como Komga, en tu red local.
     settings:
       base:
         # The App Store Connect record "MokaReader" was created with this identifier.

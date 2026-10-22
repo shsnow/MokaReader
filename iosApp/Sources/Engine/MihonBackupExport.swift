@@ -131,7 +131,7 @@ enum MihonBackupExport {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd"
-        return "mokareader_\(formatter.string(from: Date())).tachibk"
+        return "wizardcatreader_\(formatter.string(from: Date())).tachibk"
     }
 
     /// Mihon's per-manga viewer values: 1 LTR, 2 RTL, 4 webtoon.

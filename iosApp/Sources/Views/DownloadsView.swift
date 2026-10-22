@@ -59,7 +59,7 @@ struct DownloadsView: View {
                             .font(.caption)
                     }
                 } footer: {
-                    Text("Mantén MokaReader abierto mientras descarga. Si sales de la app, la descarga sigue unos momentos y se retoma al volver.")
+                    Text("Mantén Wizard Cat Reader abierto mientras descarga. Si sales de la app, la descarga sigue unos momentos y se retoma al volver.")
                 }
             }
 

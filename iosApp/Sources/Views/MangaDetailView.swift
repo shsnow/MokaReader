@@ -75,7 +75,7 @@ struct MangaDetailView: View {
                 EmptyStateView(
                     symbol: "hand.raised",
                     title: "Contenido no disponible",
-                    message: "MokaReader es una app para toda la familia y no muestra contenido para adultos."
+                    message: "Wizard Cat Reader es una app para toda la familia y no muestra contenido para adultos."
                 )
             }
         }

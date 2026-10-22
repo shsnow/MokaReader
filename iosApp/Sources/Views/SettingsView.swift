@@ -83,7 +83,7 @@ struct SettingsView: View {
                 Text("Acerca de")
             } footer: {
                 Label(
-                    "MokaReader es para toda la familia: las extensiones y series para adultos se bloquean siempre.",
+                    "Wizard Cat Reader es para toda la familia: las extensiones y series para adultos se bloquean siempre.",
                     systemImage: "checkmark.shield"
                 )
             }
@@ -194,7 +194,7 @@ struct LibrarySettingsView: View {
             } header: {
                 Text("Actualización")
             } footer: {
-                Text("Busca capítulos nuevos de tus series al abrir MokaReader, como mucho cada 6 horas. También puedes actualizar cuando quieras desde Actividad.")
+                Text("Busca capítulos nuevos de tus series al abrir Wizard Cat Reader, como mucho cada 6 horas. También puedes actualizar cuando quieras desde Actividad.")
             }
         }
         .navigationTitle("Biblioteca")
@@ -298,7 +298,7 @@ struct DataSettingsView: View {
                 }
                 .disabled(library.entries.isEmpty)
             } footer: {
-                Text("La copia usa el formato .tachibk: puedes restaurarla aquí o en Mihon. Lo que ya tienes en MokaReader se conserva y se combina.")
+                Text("La copia usa el formato .tachibk: puedes restaurarla aquí o en Mihon. Lo que ya tienes en Wizard Cat Reader se conserva y se combina.")
             }
         }
         .navigationTitle("Copias de seguridad")
@@ -491,9 +491,9 @@ struct LicensesView: View {
     }
 
     static let text = """
-    MokaReader es software libre (Apache License 2.0).
+    Wizard Cat Reader (antes MokaReader) es software libre (Apache License 2.0).
 
-    MokaReader no aloja, incluye ni recomienda contenido ni repositorios. Las extensiones las \
+    Wizard Cat Reader no aloja, incluye ni recomienda contenido ni repositorios. Las extensiones las \
     agrega el usuario desde repositorios que él mismo elige.
 
     Componentes de terceros:

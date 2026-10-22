@@ -55,6 +55,19 @@ final class ExtensionManager: ObservableObject {
         return item.versionCode > current.versionCode
     }
 
+    /// Installed extensions whose repository published a newer version.
+    var updatableExtensions: [CatalogExtension] {
+        catalog.filter { hasUpdate($0) }
+    }
+
+    var updateCount: Int { updatableExtensions.count }
+
+    func updateAll() async {
+        for item in updatableExtensions {
+            await install(item)
+        }
+    }
+
     // MARK: - Repositories
 
     func addRepository(_ text: String) async {
@@ -95,6 +108,17 @@ final class ExtensionManager: ObservableObject {
             }
         }
         catalog = deduplicated(merged)
+        lastCatalogRefresh = Date()
+    }
+
+    /// When the catalog was last fetched in this run of the app.
+    private var lastCatalogRefresh: Date?
+
+    /// Keeps the update badge honest without hammering the repositories.
+    func refreshCatalogIfStale() async {
+        let stale = lastCatalogRefresh.map { Date().timeIntervalSince($0) > 6 * 3600 } ?? true
+        guard stale else { return }
+        await refreshCatalog()
     }
 
     private func mergeCatalog(_ items: [CatalogExtension], from url: URL) {
@@ -115,7 +139,7 @@ final class ExtensionManager: ObservableObject {
     func install(_ item: CatalogExtension) async {
         guard !installing.contains(item.packageName) else { return }
         guard !item.nsfw else {
-            lastError = "MokaReader no permite extensiones de contenido para adultos."
+            lastError = "Wizard Cat Reader no permite extensiones de contenido para adultos."
             return
         }
         installing.insert(item.packageName)
@@ -176,6 +200,6 @@ final class ExtensionManager: ObservableObject {
 
 struct ExtensionBlockedError: LocalizedError {
     var errorDescription: String? {
-        "Esta extensión está marcada como contenido para adultos y MokaReader no la permite."
+        "Esta extensión está marcada como contenido para adultos y Wizard Cat Reader no la permite."
     }
 }

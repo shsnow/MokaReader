@@ -1,6 +1,6 @@
-# MokaReader
+# Wizard Cat Reader
 
-Lector de manga gratuito para iPhone y iPad, compatible con las extensiones de **Mihon**.
+Wizard Cat Reader (antes MokaReader): lector de manga gratuito para iPhone y iPad, compatible con las extensiones de **Mihon**.
 
 Las extensiones de Mihon (JARs de extension-lib 1.4–1.6) corren dentro de la app en una JVM
 embebida (OpenJDK Mobile en modo intérprete) con la capa de compatibilidad Android de Suwayomi.

@@ -23,6 +23,29 @@ struct ExtensionsView: View {
             EngineBanner()
                 .listRowInsets(EdgeInsets())
 
+            if !extensions.updatableExtensions.isEmpty {
+                Section {
+                    ForEach(extensions.updatableExtensions) { item in
+                        catalogRow(item)
+                    }
+                    Button {
+                        Task { await extensions.updateAll() }
+                    } label: {
+                        Label(
+                            extensions.updateCount == 1
+                                ? "Actualizar todo (1)"
+                                : "Actualizar todo (\(extensions.updateCount))",
+                            systemImage: "arrow.down.circle"
+                        )
+                    }
+                    .disabled(!extensions.installing.isEmpty)
+                } header: {
+                    Text("Actualizaciones")
+                } footer: {
+                    Text("Los repositorios publican versiones nuevas cuando un sitio cambia y la extensión deja de funcionar.")
+                }
+            }
+
             Section("Instaladas") {
                 if extensions.installed.isEmpty {
                     Text("Todavía no instalas ninguna extensión.")
@@ -57,7 +80,7 @@ struct ExtensionsView: View {
             } header: {
                 Text("Repositorios")
             } footer: {
-                Text("MokaReader no incluye ni recomienda repositorios. Agrega solo los que conozcas y en los que confíes.")
+                Text("Wizard Cat Reader no incluye ni recomienda repositorios. Agrega solo los que conozcas y en los que confíes.")
             }
 
             if !extensions.repositories.isEmpty {
@@ -78,7 +101,7 @@ struct ExtensionsView: View {
         .searchable(text: $query, prompt: "Buscar extensiones")
         .refreshable { await extensions.refreshCatalog() }
         .task {
-            if extensions.catalog.isEmpty { await extensions.refreshCatalog() }
+            await extensions.refreshCatalogIfStale()
         }
         .alert("Agregar repositorio", isPresented: $showingAddRepository) {
             TextField("https://…/index.pb", text: $repositoryText)
