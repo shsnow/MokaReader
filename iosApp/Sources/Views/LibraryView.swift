@@ -16,6 +16,10 @@ struct LibraryView: View {
     /// scrolling up (or reaching the top) brings it back.
     @State private var rowCollapsed = false
     @State private var lastGridOffset: CGFloat = 0
+    /// Where the current scroll direction started, so the trigger measures the accumulated
+    /// distance instead of the tiny per-frame deltas (a 120 Hz screen moves ~3 pt per frame).
+    @State private var scrollAnchor: CGFloat = 0
+    @State private var scrollingDown = false
 
     private var items: [LibraryEntry] {
         var all = library.sortedEntries.filter { ContentFilter.isAllowed($0.manga) }
