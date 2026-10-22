@@ -12,14 +12,6 @@ struct LibraryView: View {
     @State private var addingCategory = false
     @State private var newCategoryName = ""
     @State private var confirmingRemoval = false
-    /// Scrolling down collapses the "Seguir leyendo" row to leave room for the grid;
-    /// scrolling up (or reaching the top) brings it back.
-    @State private var rowCollapsed = false
-    @State private var lastGridOffset: CGFloat = 0
-    /// Where the current scroll direction started, so the trigger measures the accumulated
-    /// distance instead of the tiny per-frame deltas (a 120 Hz screen moves ~3 pt per frame).
-    @State private var scrollAnchor: CGFloat = 0
-    @State private var scrollingDown = false
 
     private var items: [LibraryEntry] {
         var all = library.sortedEntries.filter { ContentFilter.isAllowed($0.manga) }
@@ -54,25 +46,6 @@ struct LibraryView: View {
 
     private var showsContinueRow: Bool {
         !isSelecting && query.isEmpty && selectedCategory == nil && !continueReading.isEmpty
-            && !rowCollapsed
-    }
-
-    private func gridScrolled(to offset: CGFloat) {
-        let delta = offset - lastGridOffset
-        lastGridOffset = offset
-        if offset >= -12 {
-            // At or near the top the row is always there.
-            if rowCollapsed {
-                withAnimation(.easeInOut(duration: 0.22)) { rowCollapsed = false }
-            }
-            return
-        }
-        // Small moves (bounces, layout nudges) should not flap the row.
-        if delta < -14, !rowCollapsed {
-            withAnimation(.easeInOut(duration: 0.22)) { rowCollapsed = true }
-        } else if delta > 14, rowCollapsed {
-            withAnimation(.easeInOut(duration: 0.22)) { rowCollapsed = false }
-        }
     }
 
     var body: some View {
@@ -85,10 +58,6 @@ struct LibraryView: View {
                 )
             } else {
                 VStack(spacing: 0) {
-                    if showsContinueRow {
-                        continueRow
-                            .transition(.move(edge: .top).combined(with: .opacity))
-                    }
                     if !library.categories.isEmpty {
                         categoryChips
                     }
@@ -112,7 +81,8 @@ struct LibraryView: View {
                                 selection = [manga.id]
                             },
                             selection: isSelecting ? selectionBinding : nil,
-                            onScroll: { offset in gridScrolled(to: offset) }
+                            // The row scrolls away with the grid and comes back at the top.
+                            header: showsContinueRow ? AnyView(continueRow) : nil
                         ) {
                             EmptyView()
                         }

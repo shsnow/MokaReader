@@ -103,6 +103,8 @@ struct MangaGrid<Footer: View>: View {
     var onItemLongPress: ((MangaItem) -> Void)? = nil
     /// Non-nil puts the grid in selection mode: taps toggle membership instead of navigating.
     var selection: Binding<Set<String>>? = nil
+    /// Scrolls away with the content, like the library's "Seguir leyendo" row.
+    var header: AnyView? = nil
     /// Reports the scroll offset (0 at the top, negative scrolling down).
     var onScroll: ((CGFloat) -> Void)? = nil
     @ViewBuilder var footer: () -> Footer
@@ -123,6 +125,9 @@ struct MangaGrid<Footer: View>: View {
                     )
                 }
                 .frame(height: 0)
+            }
+            if let header {
+                header
             }
             LazyVGrid(columns: columns, spacing: 16) {
                 ForEach(items) { manga in
