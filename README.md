@@ -14,7 +14,10 @@ embebida (OpenJDK Mobile en modo intérprete) con la capa de compatibilidad Andr
 - [x] Backups `.tachibk`: restaurar **y exportar** (compatible con Mihon)
 - [x] Actividad: novedades de la biblioteca e historial de lectura
 - [x] Contenido +18 bloqueado en todas las capas
-- [ ] Doble página y autoscroll en el lector
+- [x] Lector: scroll continuo entre capítulos (webtoon) y autoscroll con velocidad regulable
+- [x] "Seguir leyendo" en la biblioteca y descarga automática de capítulos nuevos
+- [x] Migración de series entre fuentes y filtros de búsqueda por fuente
+- [ ] Doble página en el lector
 - [ ] Trackers (AniList, MyAnimeList) y prioridad de scanlators
 - [ ] Sincronización entre dispositivos (iCloud)
 - [ ] Portadas personalizadas, íconos alternativos, pestañas configurables

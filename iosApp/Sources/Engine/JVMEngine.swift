@@ -45,6 +45,19 @@ private struct ImageRequestDescriptor: Decodable {
     let headers: [String: String]?
 }
 
+/// One of a source's search filters, as the extension host serializes them.
+/// `type` is note, text, check, sort or select; `id` is the filter's position path.
+struct SourceFilter: Decodable, Hashable, Identifiable {
+    let id: String
+    let type: String
+    let name: String
+    let options: [String]?
+    let defaultValue: String?
+    /// check: "true" marks a three-state filter (include/exclude). sort: the default direction.
+    let auxiliary: String?
+    let group: String?
+}
+
 /// Owns the single in-process Java VM that runs Mihon extension JARs.
 ///
 /// Every Java call is blocking, so they all run on one serial queue rather than on Swift's
@@ -223,6 +236,58 @@ final class JVMEngine: @unchecked Sendable {
                     )
             }
             return (result.mangas.map { Self.manga($0, sourceId: source.id) }, result.hasNextPage)
+        }
+    }
+
+    /// The filters the source offers for its search (genres, status, order…).
+    func searchFilters(
+        source: SourceInfo,
+        installed: InstalledExtension
+    ) async throws -> [SourceFilter] {
+        try await onQueue(loading: installed) { runtime in
+            let response = try Self.checked(
+                runtime.dispatch(
+                    ExtensionHostRequest(
+                        operation: "getSearchFilters",
+                        extensionId: installed.id,
+                        sourceId: String(source.id)
+                    )
+                )
+            )
+            guard let result = response.result else { return [] }
+            return try JSONDecoder().decode([SourceFilter].self, from: Data(result.utf8))
+        }
+    }
+
+    /// Search applying the source's own filters. Unlike the plain search, the query may be
+    /// empty: the filters alone narrow the catalog.
+    func filteredSearch(
+        query: String,
+        filterStates: String,
+        source: SourceInfo,
+        installed: InstalledExtension,
+        page: Int
+    ) async throws -> (items: [MangaItem], hasNextPage: Bool) {
+        try await onQueue(loading: installed) { runtime in
+            let response = try Self.checked(
+                runtime.dispatch(
+                    ExtensionHostRequest(
+                        operation: "searchManga",
+                        extensionId: installed.id,
+                        sourceId: String(source.id),
+                        argument: String(page),
+                        query: query.isEmpty ? nil : query,
+                        filterStates: filterStates
+                    )
+                )
+            )
+            guard let result = response.result else {
+                throw EngineError.host("La fuente no devolvió resultados.")
+            }
+            let decoded = try JSONDecoder().decode(
+                TachiyomiXMangaPage.self, from: Data(result.utf8)
+            )
+            return (decoded.mangas.map { Self.manga($0, sourceId: source.id) }, decoded.hasNextPage)
         }
     }
 

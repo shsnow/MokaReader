@@ -51,12 +51,12 @@ struct RootView: View {
             NavigationStack { LibraryView() }
                 .tabItem { Label("Biblioteca", systemImage: "books.vertical") }
                 .tag(0)
-            NavigationStack { BrowseView() }
-                .tabItem { Label("Explorar", systemImage: "safari") }
-                .tag(1)
             NavigationStack { ActivityView() }
                 .tabItem { Label("Actividad", systemImage: "bolt") }
                 .tag(2)
+            NavigationStack { BrowseView() }
+                .tabItem { Label("Explorar", systemImage: "safari") }
+                .tag(1)
             NavigationStack { ExtensionsView() }
                 .tabItem { Label("Extensiones", systemImage: "puzzlepiece.extension") }
                 .tag(3)

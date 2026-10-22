@@ -3,6 +3,8 @@ import SwiftUI
 struct LibraryView: View {
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var settings: AppSettings
+    @EnvironmentObject private var extensions: ExtensionManager
+    @State private var reader: ReaderContext?
     @State private var query = ""
     @State private var selectedCategory: String?
     @State private var isSelecting = false
@@ -30,6 +32,22 @@ struct LibraryView: View {
         return all.filter { $0.manga.title.localizedCaseInsensitiveContains(query) }
     }
 
+    /// Series left halfway, most recent first, for the "Seguir leyendo" row.
+    private var continueReading: [LibraryEntry] {
+        library.sortedEntries
+            .filter { ContentFilter.isAllowed($0.manga) }
+            .filter {
+                library.progress[$0.manga.id]?.lastReadChapter != nil
+                    && library.unreadCount(for: $0) > 0
+            }
+            .prefix(10)
+            .map { $0 }
+    }
+
+    private var showsContinueRow: Bool {
+        !isSelecting && query.isEmpty && selectedCategory == nil && !continueReading.isEmpty
+    }
+
     var body: some View {
         Group {
             if library.entries.isEmpty {
@@ -40,6 +58,9 @@ struct LibraryView: View {
                 )
             } else {
                 VStack(spacing: 0) {
+                    if showsContinueRow {
+                        continueRow
+                    }
                     if !library.categories.isEmpty {
                         categoryChips
                     }
@@ -113,6 +134,9 @@ struct LibraryView: View {
         .navigationDestination(for: MangaItem.self) { manga in
             MangaDetailView(manga: manga)
         }
+        .fullScreenCover(item: $reader) { context in
+            ReaderView(context: context)
+        }
         .alert("Nueva categoría", isPresented: $addingCategory) {
             TextField("Nombre", text: $newCategoryName)
             Button("Cancelar", role: .cancel) {}
@@ -147,6 +171,81 @@ struct LibraryView: View {
 
     private var selectionBinding: Binding<Set<String>> {
         Binding(get: { selection }, set: { selection = $0 })
+    }
+
+    private var continueRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Seguir leyendo")
+                .font(.system(.subheadline, design: .serif).weight(.semibold))
+                .padding(.horizontal)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 12) {
+                    ForEach(continueReading, id: \.manga.id) { entry in
+                        continueCard(entry)
+                    }
+                }
+                .padding(.horizontal)
+            }
+        }
+        .padding(.top, 6)
+        .padding(.bottom, 2)
+    }
+
+    /// One tap opens the reader right where the series was left; if the source's extension is
+    /// gone, it falls back to the series page.
+    @ViewBuilder
+    private func continueCard(_ entry: LibraryEntry) -> some View {
+        let target = library.continueChapter(in: entry)
+        if let target, let installed = extensions.extensionFor(sourceId: entry.manga.sourceId) {
+            Button {
+                let ordered = Array(entry.chapters.reversed())
+                guard let index = ordered.firstIndex(where: { $0.url == target.url }) else { return }
+                reader = ReaderContext(
+                    manga: entry.manga, installed: installed, chapters: ordered, startIndex: index
+                )
+            } label: {
+                continueCardLabel(entry, target: target)
+            }
+            .buttonStyle(.plain)
+        } else {
+            NavigationLink(value: entry.manga) {
+                continueCardLabel(entry, target: target)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func continueCardLabel(_ entry: LibraryEntry, target: ChapterItem?) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            CoverImage(manga: entry.manga)
+                .frame(width: 76, height: 108)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(alignment: .bottomTrailing) {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(5)
+                        .background(Color.moka, in: Circle())
+                        .padding(4)
+                }
+            Text(entry.manga.title)
+                .font(.caption2.weight(.medium))
+                .lineLimit(1)
+                .foregroundStyle(.primary)
+            Text(continueCaption(for: target))
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .frame(width: 76, alignment: .leading)
+    }
+
+    private func continueCaption(for target: ChapterItem?) -> String {
+        guard let target else { return "" }
+        if let number = target.number {
+            return "Cap. \(String(format: "%g", number))"
+        }
+        return target.name
     }
 
     private var categoryChips: some View {

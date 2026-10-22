@@ -114,6 +114,16 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(downloadBatch, forKey: "downloadBatch") }
     }
 
+    /// Download the new chapters a library update finds, automatically.
+    @Published var autoDownloadUpdates: Bool {
+        didSet { defaults.set(autoDownloadUpdates, forKey: "autoDownloadUpdates") }
+    }
+
+    /// Webtoon autoscroll speed, in points per second.
+    @Published var autoScrollSpeed: Double {
+        didSet { defaults.set(autoScrollSpeed, forKey: "autoScrollSpeed") }
+    }
+
     private init() {
         // A local, so nothing reads `self` before every stored property is initialized.
         let defaults = UserDefaults.standard
@@ -136,6 +146,9 @@ final class AppSettings: ObservableObject {
         deleteAfterReading = defaults.bool(forKey: "deleteAfterReading")
         let batch = defaults.integer(forKey: "downloadBatch")
         downloadBatch = (1...5).contains(batch) ? batch : 3
+        autoDownloadUpdates = defaults.bool(forKey: "autoDownloadUpdates")
+        let speed = defaults.double(forKey: "autoScrollSpeed")
+        autoScrollSpeed = speed == 0 ? 80 : min(max(speed, 20), 300)
     }
 
     func shows(language: String) -> Bool {

@@ -89,7 +89,7 @@ struct SettingsView: View {
                 }
             }
 
-            Section("Descargas") {
+            Section {
                 NavigationLink {
                     DownloadsView()
                 } label: {
@@ -108,6 +108,7 @@ struct SettingsView: View {
                 Picker("Páginas simultáneas", selection: $settings.downloadBatch) {
                     ForEach(1...5, id: \.self) { Text("\($0)").tag($0) }
                 }
+                Toggle("Descargar capítulos nuevos", isOn: $settings.autoDownloadUpdates)
                 Toggle("Borrar al terminar de leer", isOn: $settings.deleteAfterReading)
                 Button {
                     Task {
@@ -121,6 +122,10 @@ struct SettingsView: View {
                         Text(cacheBytes.byteText).foregroundStyle(.secondary)
                     }
                 }
+            } header: {
+                Text("Descargas")
+            } footer: {
+                Text("Con la descarga automática, al actualizar la biblioteca los capítulos nuevos de tus series se guardan solos para leer sin conexión.")
             }
 
             Section {

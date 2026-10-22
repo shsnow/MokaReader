@@ -55,22 +55,6 @@ private struct UpdatesList: View {
     @EnvironmentObject private var extensions: ExtensionManager
     @EnvironmentObject private var updater: LibraryUpdater
 
-    private struct Day: Identifiable {
-        let date: Date
-        let items: [(manga: MangaItem, chapter: ChapterItem)]
-        var id: Date { date }
-    }
-
-    private var days: [Day] {
-        let calendar = Calendar.current
-        let grouped = Dictionary(grouping: library.latestUploads) { item in
-            calendar.startOfDay(for: item.chapter.date ?? .distantPast)
-        }
-        return grouped
-            .map { Day(date: $0.key, items: $0.value) }
-            .sorted { $0.date > $1.date }
-    }
-
     var body: some View {
         List {
             if updater.isRefreshing {
@@ -80,6 +64,7 @@ private struct UpdatesList: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
+                .listRowSeparator(.hidden)
             } else if let finished = updater.lastFinished {
                 Text(
                     updater.newChapters == 0
@@ -88,20 +73,18 @@ private struct UpdatesList: View {
                 )
                 .font(.footnote)
                 .foregroundStyle(updater.newChapters == 0 ? .secondary : Color.moka)
+                .listRowSeparator(.hidden)
             }
 
             if library.entries.isEmpty {
                 Text("Guarda series en tu biblioteca para ver aquí sus capítulos nuevos.")
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(days) { day in
-                    SwiftUI.Section(day.date.shortText) {
-                        ForEach(day.items, id: \.chapter.url) { item in
-                            NavigationLink(value: item.manga) {
-                                row(item.manga, item.chapter)
-                            }
-                        }
+                ForEach(library.latestUploads, id: \.chapter.url) { item in
+                    NavigationLink(value: item.manga) {
+                        row(item.manga, item.chapter)
                     }
+                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 12))
                 }
             }
         }
@@ -120,24 +103,32 @@ private struct UpdatesList: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(manga.title)
                     .font(.subheadline.weight(read ? .regular : .semibold))
+                    .foregroundStyle(read ? .secondary : .primary)
                     .lineLimit(1)
                 Text(chapter.name)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
-            Spacer(minLength: 0)
-            if updater.lastNewURLs.contains(chapter.url) {
-                Text("Nuevo")
-                    .font(.caption2.bold())
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Color.moka.opacity(0.15), in: Capsule())
-                    .foregroundStyle(Color.moka)
-            } else if !read {
-                Circle()
-                    .fill(Color.moka)
-                    .frame(width: 8, height: 8)
+            Spacer(minLength: 8)
+            VStack(alignment: .trailing, spacing: 4) {
+                if let date = chapter.date {
+                    Text(date.shortText)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+                if updater.lastNewURLs.contains(chapter.url) {
+                    Text("Nuevo")
+                        .font(.caption2.bold())
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.moka.opacity(0.15), in: Capsule())
+                        .foregroundStyle(Color.moka)
+                } else if !read {
+                    Circle()
+                        .fill(Color.moka)
+                        .frame(width: 8, height: 8)
+                }
             }
         }
     }

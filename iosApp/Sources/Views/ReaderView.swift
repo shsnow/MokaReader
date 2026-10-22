@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct ReaderContext: Identifiable {
     let id = UUID()
@@ -7,6 +8,88 @@ struct ReaderContext: Identifiable {
     /// Oldest first, so "next chapter" is index + 1.
     let chapters: [ChapterItem]
     let startIndex: Int
+}
+
+/// Drives the webtoon's underlying UIScrollView at a steady speed with a display link.
+final class AutoScroller: NSObject, ObservableObject {
+    weak var scrollView: UIScrollView?
+    var pointsPerSecond: Double = 80
+    /// Called on the main thread every frame the strip sits at its bottom.
+    var onReachEnd: (() -> Void)?
+
+    private var displayLink: CADisplayLink?
+
+    func start() {
+        guard displayLink == nil else { return }
+        let link = CADisplayLink(target: self, selector: #selector(step(_:)))
+        link.add(to: .main, forMode: .common)
+        displayLink = link
+    }
+
+    func stop() {
+        displayLink?.invalidate()
+        displayLink = nil
+    }
+
+    @objc private func step(_ link: CADisplayLink) {
+        guard let scrollView else { return }
+        // A finger on screen, or a fling still running, takes priority over the motor.
+        if scrollView.isTracking || scrollView.isDecelerating { return }
+        let limit = scrollView.contentSize.height
+            + scrollView.adjustedContentInset.bottom
+            - scrollView.bounds.height
+        guard limit > 0 else { return }
+        let elapsed = link.targetTimestamp - link.timestamp
+        var offset = scrollView.contentOffset
+        offset.y += CGFloat(pointsPerSecond * elapsed)
+        if offset.y >= limit {
+            offset.y = limit
+            scrollView.setContentOffset(offset, animated: false)
+            onReachEnd?()
+            return
+        }
+        scrollView.setContentOffset(offset, animated: false)
+    }
+
+    deinit {
+        displayLink?.invalidate()
+    }
+}
+
+/// Invisible view that finds its enclosing UIScrollView, so autoscroll can drive it directly.
+private struct ScrollViewGrabber: UIViewRepresentable {
+    let onResolve: (UIScrollView) -> Void
+
+    func makeUIView(context: Context) -> Resolver { Resolver(onResolve: onResolve) }
+    func updateUIView(_ uiView: Resolver, context: Context) {}
+
+    final class Resolver: UIView {
+        private let onResolve: (UIScrollView) -> Void
+
+        init(onResolve: @escaping (UIScrollView) -> Void) {
+            self.onResolve = onResolve
+            super.init(frame: .zero)
+            isUserInteractionEnabled = false
+            backgroundColor = .clear
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            // Detaching also lands here; resolving then could hand back the dying scroll view.
+            guard window != nil else { return }
+            var view: UIView? = superview
+            while let current = view {
+                if let scroll = current as? UIScrollView {
+                    onResolve(scroll)
+                    return
+                }
+                view = current.superview
+            }
+        }
+    }
 }
 
 struct ReaderView: View {
@@ -27,6 +110,17 @@ struct ReaderView: View {
     @State private var currentPage = 0
     @State private var isOffline = false
 
+    /// The chapters loaded into the webtoon strip, in reading order. Scrolling past the end of
+    /// one chapter loads the next below it, so long strips read without interruption.
+    @State private var segments: [WebtoonSegment] = []
+    /// Regenerated only on explicit jumps, so appending a chapter never resets the scroll.
+    @State private var stripID = UUID()
+    @State private var isLoadingNext = false
+    @State private var nextError: String?
+
+    @StateObject private var autoScroller = AutoScroller()
+    @State private var isAutoScrolling = false
+
     /// Webtoon zoom: the strip is laid out wider and scrolls in both directions.
     @State private var zoom: CGFloat = 1
     @GestureState private var pinch: CGFloat = 1
@@ -37,6 +131,15 @@ struct ReaderView: View {
     /// How many pages ahead to load before they come on screen.
     private let prefetchCount = 4
 
+    struct WebtoonSegment: Identifiable {
+        let chapterIndex: Int
+        let chapterURL: String
+        let pages: [PageItem]
+        let isOffline: Bool
+
+        var id: String { chapterURL }
+    }
+
     init(context: ReaderContext) {
         self.context = context
         _chapterIndex = State(initialValue: context.startIndex)
@@ -45,6 +148,10 @@ struct ReaderView: View {
     private var chapter: ChapterItem { context.chapters[chapterIndex] }
     private var hasNext: Bool { chapterIndex + 1 < context.chapters.count }
     private var hasPrevious: Bool { chapterIndex > 0 }
+    /// True once the strip's last loaded chapter is the series' final one.
+    private var stripReachedEnd: Bool {
+        (segments.last?.chapterIndex ?? chapterIndex) + 1 >= context.chapters.count
+    }
 
     private var background: Color { settings.readerBackground.color }
     private var isLightBackground: Bool { settings.readerBackground == .white }
@@ -89,6 +196,7 @@ struct ReaderView: View {
             if settings.keepScreenAwake { UIApplication.shared.isIdleTimerDisabled = true }
         }
         .onDisappear {
+            stopAutoScroll()
             UIApplication.shared.isIdleTimerDisabled = false
             library.addReadingTime(Date().timeIntervalSince(sessionStart), to: context.manga)
         }
@@ -105,28 +213,31 @@ struct ReaderView: View {
         let maxPan = width * (scale - 1) / 2
         return ScrollView(.vertical, showsIndicators: false) {
             LazyVStack(spacing: 0) {
-                ForEach(Array(pages.enumerated()), id: \.element.id) { offset, page in
-                    ReaderPageView(
-                        page: page,
-                        manga: context.manga,
-                        installed: context.installed,
-                        width: width,
-                        decodeWidth: decodeWidth,
-                        fitHeight: nil,
-                        onTap: nil
-                    )
-                    .onAppear {
-                        currentPage = offset
-                        prefetch(after: offset, decodeWidth: decodeWidth)
-                        if offset == pages.count - 1 { markRead() }
+                ForEach(segments) { segment in
+                    if segment.chapterIndex != segments.first?.chapterIndex {
+                        segmentDivider(for: segment)
+                    }
+                    ForEach(Array(segment.pages.enumerated()), id: \.element.id) { offset, page in
+                        ReaderPageView(
+                            page: page,
+                            manga: context.manga,
+                            installed: context.installed,
+                            width: width,
+                            decodeWidth: decodeWidth,
+                            fitHeight: nil,
+                            onTap: nil
+                        )
+                        .onAppear {
+                            pageAppeared(segment: segment, offset: offset, decodeWidth: decodeWidth)
+                        }
                     }
                 }
-                chapterEnd
-                    .frame(minHeight: 260)
+                stripFooter
             }
             .frame(maxWidth: .infinity)
+            .background(ScrollViewGrabber { autoScroller.scrollView = $0 })
         }
-        .id(chapter.url)
+        .id(stripID)
         // Zoom scales the visible viewport around the screen centre; the strip keeps its layout,
         // so the reading position never moves and pages still load lazily.
         .scaleEffect(scale, anchor: .center)
@@ -170,6 +281,146 @@ struct ReaderView: View {
         }
     }
 
+    private func segmentDivider(for segment: WebtoonSegment) -> some View {
+        VStack(spacing: 6) {
+            Rectangle()
+                .fill(controlColor.opacity(0.15))
+                .frame(height: 1)
+                .padding(.horizontal, 40)
+            Text(context.chapters[segment.chapterIndex].name)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(controlColor.opacity(0.7))
+                .lineLimit(1)
+            Rectangle()
+                .fill(controlColor.opacity(0.15))
+                .frame(height: 1)
+                .padding(.horizontal, 40)
+        }
+        .padding(.vertical, 28)
+        .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private var stripFooter: some View {
+        if isLoadingNext {
+            HStack(spacing: 10) {
+                ProgressView()
+                    .tint(controlColor)
+                Text("Cargando el siguiente capítulo…")
+                    .font(.footnote)
+                    .foregroundStyle(controlColor.opacity(0.7))
+            }
+            .padding(.vertical, 60)
+            .frame(maxWidth: .infinity)
+        } else if let nextError {
+            VStack(spacing: 12) {
+                Text(nextError)
+                    .font(.footnote)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(controlColor.opacity(0.8))
+                Button("Reintentar") { Task { await loadNextSegment() } }
+                    .buttonStyle(.bordered)
+            }
+            .padding(32)
+            .frame(maxWidth: .infinity)
+        } else if stripReachedEnd {
+            chapterEnd
+                .frame(minHeight: 260)
+        } else {
+            // Room for the trigger when scrolling faster than pages load.
+            Color.clear
+                .frame(height: 120)
+                .onAppear { Task { await loadNextSegment() } }
+        }
+    }
+
+    private func pageAppeared(segment: WebtoonSegment, offset: Int, decodeWidth: CGFloat) {
+        if segment.chapterIndex != chapterIndex {
+            // Crossed into another chapter while scrolling.
+            chapterIndex = segment.chapterIndex
+            pages = segment.pages
+            isOffline = segment.isOffline
+            library.markOpened(context.chapters[segment.chapterIndex], in: context.manga)
+        }
+        currentPage = offset
+        prefetch(after: offset, in: segment.pages, decodeWidth: decodeWidth)
+        if offset >= segment.pages.count - 1 {
+            markRead(segment: segment)
+        }
+        if segment.id == segments.last?.id && offset >= segment.pages.count - 3 {
+            Task { await loadNextSegment() }
+        }
+    }
+
+    private func loadNextSegment() async {
+        guard mode == .webtoon, !isLoadingNext, !isLoading else { return }
+        guard let last = segments.last else { return }
+        let nextIndex = last.chapterIndex + 1
+        guard nextIndex < context.chapters.count else { return }
+        guard !segments.contains(where: { $0.chapterIndex == nextIndex }) else { return }
+        isLoadingNext = true
+        nextError = nil
+        defer { isLoadingNext = false }
+        let target = context.chapters[nextIndex]
+
+        if let local = downloads.localPages(manga: context.manga, chapter: target) {
+            segments.append(
+                WebtoonSegment(chapterIndex: nextIndex, chapterURL: target.url, pages: local, isOffline: true)
+            )
+            return
+        }
+        do {
+            let loaded = try await JVMEngine.shared.pages(
+                of: target, manga: context.manga, installed: context.installed
+            )
+            // The strip may have been rebuilt (mode switch, chapter jump) while this loaded.
+            guard mode == .webtoon, segments.last?.chapterIndex == last.chapterIndex else { return }
+            guard !loaded.isEmpty else {
+                nextError = "\(target.name) no tiene páginas."
+                return
+            }
+            segments.append(
+                WebtoonSegment(chapterIndex: nextIndex, chapterURL: target.url, pages: loaded, isOffline: false)
+            )
+        } catch {
+            nextError = error.localizedDescription
+        }
+    }
+
+    // MARK: - Autoscroll
+
+    private func toggleAutoScroll() {
+        if isAutoScrolling {
+            stopAutoScroll()
+        } else {
+            startAutoScroll()
+        }
+    }
+
+    private func startAutoScroll() {
+        guard mode == .webtoon else { return }
+        autoScroller.pointsPerSecond = settings.autoScrollSpeed
+        autoScroller.onReachEnd = {
+            // At the true end of the series — or if the next chapter failed to load — the motor
+            // stops; while the next chapter is still loading it waits and resumes on its own.
+            if !isLoadingNext && (stripReachedEnd || nextError != nil) {
+                stopAutoScroll()
+            }
+        }
+        autoScroller.start()
+        isAutoScrolling = true
+        UIApplication.shared.isIdleTimerDisabled = true
+    }
+
+    private func stopAutoScroll() {
+        // Clearing the callback also breaks the reference loop through the captured view copy.
+        autoScroller.onReachEnd = nil
+        autoScroller.stop()
+        guard isAutoScrolling else { return }
+        isAutoScrolling = false
+        UIApplication.shared.isIdleTimerDisabled = settings.keepScreenAwake
+    }
+
     // MARK: - Paged
 
     private func paged(size: CGSize) -> some View {
@@ -195,11 +446,11 @@ struct ReaderView: View {
         .environment(\.layoutDirection, mode == .rightToLeft ? .rightToLeft : .leftToRight)
         .id("\(chapter.url)-\(mode.rawValue)")
         .onChange(of: currentPage) { value in
-            prefetch(after: value, decodeWidth: size.width * displayScale * 2)
+            prefetch(after: value, in: pages, decodeWidth: size.width * displayScale * 2)
             if value >= pages.count - 1 && !pages.isEmpty { markRead() }
         }
         .onAppear {
-            prefetch(after: currentPage, decodeWidth: size.width * displayScale * 2)
+            prefetch(after: currentPage, in: pages, decodeWidth: size.width * displayScale * 2)
         }
     }
 
@@ -224,7 +475,7 @@ struct ReaderView: View {
         withAnimation(.easeInOut(duration: 0.25)) { currentPage = target }
     }
 
-    private func prefetch(after index: Int, decodeWidth: CGFloat) {
+    private func prefetch(after index: Int, in pages: [PageItem], decodeWidth: CGFloat) {
         guard !pages.isEmpty else { return }
         let start = index + 1
         let end = min(index + prefetchCount, pages.count - 1)
@@ -305,47 +556,80 @@ struct ReaderView: View {
 
             Spacer()
 
-            HStack(spacing: 18) {
-                Button {
-                    Task { await go(to: chapterIndex - 1) }
-                } label: {
-                    Image(systemName: "backward.end.fill")
+            VStack(spacing: 0) {
+                if isAutoScrolling {
+                    HStack(spacing: 12) {
+                        Image(systemName: "tortoise")
+                            .font(.caption)
+                        Slider(value: speedBinding, in: 20...300)
+                        Image(systemName: "hare")
+                            .font(.caption)
+                    }
+                    .tint(.moka)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 10)
                 }
-                .disabled(!hasPrevious)
 
-                Spacer()
+                HStack(spacing: 18) {
+                    Button {
+                        Task { await go(to: chapterIndex - 1) }
+                    } label: {
+                        Image(systemName: "backward.end.fill")
+                    }
+                    .disabled(!hasPrevious)
 
-                if !pages.isEmpty {
-                    Text("\(min(currentPage + 1, pages.count)) / \(pages.count)")
-                        .font(.footnote.monospacedDigit())
-                }
+                    Spacer()
 
-                Spacer()
-
-                Menu {
-                    Picker("Modo de lectura", selection: modeBinding) {
-                        ForEach(ReadingMode.allCases) { item in
-                            Label(item.title, systemImage: item.symbol).tag(item)
+                    if mode == .webtoon {
+                        Button {
+                            toggleAutoScroll()
+                        } label: {
+                            Image(systemName: isAutoScrolling ? "pause.circle.fill" : "play.circle")
                         }
                     }
-                } label: {
-                    Image(systemName: mode.symbol)
-                }
 
-                Button {
-                    Task { await go(to: chapterIndex + 1) }
-                } label: {
-                    Image(systemName: "forward.end.fill")
+                    if !pages.isEmpty {
+                        Text("\(min(currentPage + 1, pages.count)) / \(pages.count)")
+                            .font(.footnote.monospacedDigit())
+                    }
+
+                    Spacer()
+
+                    Menu {
+                        Picker("Modo de lectura", selection: modeBinding) {
+                            ForEach(ReadingMode.allCases) { item in
+                                Label(item.title, systemImage: item.symbol).tag(item)
+                            }
+                        }
+                    } label: {
+                        Image(systemName: mode.symbol)
+                    }
+
+                    Button {
+                        Task { await go(to: chapterIndex + 1) }
+                    } label: {
+                        Image(systemName: "forward.end.fill")
+                    }
+                    .disabled(!hasNext)
                 }
-                .disabled(!hasNext)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 14)
             }
             .font(.title3)
-            .padding(.horizontal, 24)
-            .padding(.vertical, 14)
             .foregroundStyle(.white)
             .background(.black.opacity(0.75))
         }
         .transition(.opacity)
+    }
+
+    private var speedBinding: Binding<Double> {
+        Binding(
+            get: { settings.autoScrollSpeed },
+            set: { value in
+                settings.autoScrollSpeed = value
+                autoScroller.pointsPerSecond = value
+            }
+        )
     }
 
     private var modeBinding: Binding<ReadingMode> {
@@ -353,11 +637,23 @@ struct ReaderView: View {
             get: { mode },
             set: { value in
                 let position = currentPage
+                stopAutoScroll()
                 mode = value
                 zoom = 1
                 pan = 0
                 // Keep the reading position across mode changes.
                 currentPage = pages.isEmpty ? 0 : min(position, pages.count - 1)
+                // The strip restarts from the chapter being read.
+                segments = pages.isEmpty ? [] : [
+                    WebtoonSegment(
+                        chapterIndex: chapterIndex,
+                        chapterURL: chapter.url,
+                        pages: pages,
+                        isOffline: isOffline
+                    )
+                ]
+                nextError = nil
+                stripID = UUID()
                 library.setReadingMode(value, for: context.manga)
             }
         )
@@ -374,10 +670,14 @@ struct ReaderView: View {
     private func loadChapter() async {
         isLoading = true
         error = nil
+        nextError = nil
         pages = []
+        segments = []
         currentPage = 0
         zoom = 1
         pan = 0
+        stripID = UUID()
+        stopAutoScroll()
         defer { isLoading = false }
         let target = chapter
         library.markOpened(target, in: context.manga)
@@ -386,6 +686,9 @@ struct ReaderView: View {
         if let local = downloads.localPages(manga: context.manga, chapter: target) {
             isOffline = true
             pages = local
+            segments = [
+                WebtoonSegment(chapterIndex: chapterIndex, chapterURL: target.url, pages: local, isOffline: true)
+            ]
             return
         }
         isOffline = false
@@ -398,15 +701,28 @@ struct ReaderView: View {
                 error = "Este capítulo no tiene páginas."
             }
             pages = loaded
+            segments = loaded.isEmpty ? [] : [
+                WebtoonSegment(chapterIndex: chapterIndex, chapterURL: target.url, pages: loaded, isOffline: false)
+            ]
         } catch {
             self.error = error.localizedDescription
         }
     }
 
+    /// Paged mode: the chapter on screen was finished.
     private func markRead() {
         library.setRead(true, chapter: chapter, in: context.manga)
         if settings.deleteAfterReading && isOffline {
             downloads.delete(manga: context.manga, chapter: chapter)
+        }
+    }
+
+    /// Webtoon strip: one of the loaded chapters was finished.
+    private func markRead(segment: WebtoonSegment) {
+        let finished = context.chapters[segment.chapterIndex]
+        library.setRead(true, chapter: finished, in: context.manga)
+        if settings.deleteAfterReading && segment.isOffline {
+            downloads.delete(manga: context.manga, chapter: finished)
         }
     }
 }

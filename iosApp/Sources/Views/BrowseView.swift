@@ -88,6 +88,11 @@ struct SourceBrowseView: View {
     @State private var isLoading = false
     @State private var error: String?
 
+    @State private var filters: [SourceFilter] = []
+    @State private var selections = SourceFilterSelections()
+    @State private var appliedFilterStates: String?
+    @State private var showingFilters = false
+
     enum Mode: String, CaseIterable, Identifiable {
         case popular = "Popular"
         case latest = "Recientes"
@@ -102,13 +107,29 @@ struct SourceBrowseView: View {
     var body: some View {
         VStack(spacing: 0) {
             EngineBanner()
-            if source.supportsLatest && submittedQuery.isEmpty {
+            if source.supportsLatest && submittedQuery.isEmpty && appliedFilterStates == nil {
                 Picker("Lista", selection: $mode) {
                     ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
                 }
                 .pickerStyle(.segmented)
                 .padding(.horizontal)
                 .padding(.vertical, 8)
+            }
+            if appliedFilterStates != nil {
+                HStack {
+                    Label("Filtros aplicados", systemImage: "line.3.horizontal.decrease.circle")
+                        .font(.footnote)
+                        .foregroundStyle(Color.moka)
+                    Spacer()
+                    Button("Quitar") {
+                        appliedFilterStates = nil
+                        selections = SourceFilterSelections()
+                        Task { await reload() }
+                    }
+                    .font(.footnote.weight(.semibold))
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 6)
             }
             if let error, items.isEmpty {
                 EmptyStateView(symbol: "exclamationmark.triangle", title: "No se pudo cargar", message: error)
@@ -117,6 +138,12 @@ struct SourceBrowseView: View {
             } else if items.isEmpty && isLoading {
                 ProgressView("Cargando…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if items.isEmpty && page > 0 {
+                EmptyStateView(
+                    symbol: "magnifyingglass",
+                    title: "Sin resultados",
+                    message: "Prueba con otra búsqueda u otros filtros."
+                )
             } else {
                 MangaGrid(
                     items: items,
@@ -134,6 +161,30 @@ struct SourceBrowseView: View {
         }
         .navigationTitle(source.name)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    showingFilters = true
+                } label: {
+                    Image(systemName: appliedFilterStates == nil
+                        ? "line.3.horizontal.decrease.circle"
+                        : "line.3.horizontal.decrease.circle.fill")
+                }
+            }
+        }
+        .sheet(isPresented: $showingFilters) {
+            if let installed = extensions.extensionFor(sourceId: source.id) {
+                SourceFiltersSheet(
+                    source: source,
+                    installed: installed,
+                    filters: $filters,
+                    selections: $selections
+                ) {
+                    appliedFilterStates = selections.encoded(for: filters)
+                    Task { await reload() }
+                }
+            }
+        }
         .searchable(text: $query, prompt: "Buscar en \(source.name)")
         .onSubmit(of: .search) {
             submittedQuery = query.trimmingCharacters(in: .whitespaces)
@@ -167,15 +218,33 @@ struct SourceBrowseView: View {
         isLoading = true
         defer { isLoading = false }
         let requested = listing
+        let requestedFilters = appliedFilterStates
         do {
             // A page can come back empty after hiding adult series; fetch a few more pages so
             // the infinite scroll does not stall with nothing on screen to trigger it.
             var attempts = 0
             repeat {
-                let result = try await JVMEngine.shared.mangaPage(
-                    requested, source: source, installed: installed, page: page + 1
-                )
-                guard requested == listing else { return }
+                let result: (items: [MangaItem], hasNextPage: Bool)
+                if let requestedFilters {
+                    result = try await JVMEngine.shared.filteredSearch(
+                        query: submittedQuery,
+                        filterStates: requestedFilters,
+                        source: source,
+                        installed: installed,
+                        page: page + 1
+                    )
+                } else {
+                    result = try await JVMEngine.shared.mangaPage(
+                        requested, source: source, installed: installed, page: page + 1
+                    )
+                }
+                guard requested == listing, requestedFilters == appliedFilterStates else {
+                    // The search or filters changed while this page was loading: throw it away
+                    // and load the current listing, or the grid would sit empty.
+                    isLoading = false
+                    await loadNextPage()
+                    return
+                }
                 let known = Set(items.map(\.id))
                 let fresh = ContentFilter.allowed(result.items).filter { !known.contains($0.id) }
                 items.append(contentsOf: fresh)

@@ -55,6 +55,14 @@ final class LibraryUpdater: ObservableObject {
                 let fresh = result.chapters.filter { !known.contains($0.url) }
                 newChapters += fresh.count
                 discovered.formUnion(fresh.map(\.url))
+                // Optional auto-download, oldest first so the queue follows reading order.
+                // An entry with no chapter list yet is skipped: there "new" would mean the
+                // whole series.
+                if AppSettings.shared.autoDownloadUpdates, !known.isEmpty, !fresh.isEmpty {
+                    DownloadManager.shared.enqueue(
+                        Array(fresh.reversed()), manga: result.manga, installed: installed
+                    )
+                }
                 library.refresh(result.manga, chapters: result.chapters)
             } catch {
                 // A source that is down should not stop the rest of the update.

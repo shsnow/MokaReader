@@ -231,6 +231,65 @@ final class LibraryStore: ObservableObject {
             .map { $0 }
     }
 
+    /// The chapter "Continuar" should open: the last one opened if unfinished, otherwise the next.
+    func continueChapter(in entry: LibraryEntry) -> ChapterItem? {
+        let ordered = Array(entry.chapters.reversed())
+        guard !ordered.isEmpty else { return nil }
+        if let last = progress[entry.manga.id]?.lastReadChapter,
+           let index = ordered.firstIndex(where: { $0.url == last }) {
+            if !isRead(ordered[index], in: entry.manga) { return ordered[index] }
+            // The first unread chapter after the last one opened, skipping any read out of order.
+            if let next = ordered[(index + 1)...].first(where: { !isRead($0, in: entry.manga) }) {
+                return next
+            }
+            return ordered[index]
+        }
+        return ordered.first { !isRead($0, in: entry.manga) } ?? ordered.first
+    }
+
+    /// Moves an entry to the same series on another source. Read chapters, favorites and the
+    /// last-read position carry over matched by chapter number; the note, categories and
+    /// reading time move as they are. Downloads of the old source are left on disk.
+    func migrate(from old: MangaItem, to new: MangaItem, chapters newChapters: [ChapterItem]) {
+        guard old.id != new.id, let oldEntry = entries[old.id] else { return }
+        let oldProgress = progress[old.id]
+
+        func numbers(of urls: Set<String>) -> Set<Float> {
+            Set(oldEntry.chapters.filter { urls.contains($0.url) }.compactMap(\.number))
+        }
+        func urls(matching numbers: Set<Float>) -> Set<String> {
+            Set(newChapters.filter { $0.number.map(numbers.contains) == true }.map(\.url))
+        }
+
+        var moved = MangaProgress()
+        moved.readChapters = urls(matching: numbers(of: oldProgress?.readChapters ?? []))
+        if let bookmarked = oldProgress?.bookmarkedChapters, !bookmarked.isEmpty {
+            let mapped = urls(matching: numbers(of: bookmarked))
+            moved.bookmarkedChapters = mapped.isEmpty ? nil : mapped
+        }
+        moved.readSeconds = oldProgress?.readSeconds
+        moved.readingMode = oldProgress?.readingMode
+        moved.lastReadAt = oldProgress?.lastReadAt
+        if let lastURL = oldProgress?.lastReadChapter,
+           let number = oldEntry.chapters.first(where: { $0.url == lastURL })?.number,
+           let match = newChapters.first(where: { $0.number == number }) {
+            moved.lastReadChapter = match.url
+        }
+
+        entries[new.id] = LibraryEntry(
+            manga: new,
+            chapters: newChapters,
+            addedAt: oldEntry.addedAt,
+            note: oldEntry.note,
+            categories: oldEntry.categories
+        )
+        progress[new.id] = moved
+        entries[old.id] = nil
+        progress[old.id] = nil
+        saveLibrary()
+        saveProgress()
+    }
+
     func readingMode(for manga: MangaItem, fallback: ReadingMode) -> ReadingMode {
         if let stored = progress[manga.id]?.readingMode { return stored }
         return manga.looksLikeWebtoon ? .webtoon : fallback

@@ -20,6 +20,7 @@ struct MangaDetailView: View {
     @State private var selectedChapters: Set<String> = []
     @State private var chapterQuery = ""
     @State private var siteURL: URL?
+    @State private var migrating = false
 
     init(manga: MangaItem) {
         _manga = State(initialValue: manga)
@@ -217,13 +218,22 @@ struct MangaDetailView: View {
                 } label: {
                     Image(systemName: library.contains(manga) ? "bookmark.fill" : "bookmark")
                 }
-                if let siteURL {
+                if siteURL != nil || library.contains(manga) {
                     Menu {
-                        Link(destination: siteURL) {
-                            Label("Abrir en el sitio", systemImage: "safari")
+                        if library.contains(manga) {
+                            Button {
+                                migrating = true
+                            } label: {
+                                Label("Migrar de fuente", systemImage: "arrow.left.arrow.right")
+                            }
                         }
-                        ShareLink(item: siteURL) {
-                            Label("Compartir enlace", systemImage: "square.and.arrow.up")
+                        if let siteURL {
+                            Link(destination: siteURL) {
+                                Label("Abrir en el sitio", systemImage: "safari")
+                            }
+                            ShareLink(item: siteURL) {
+                                Label("Compartir enlace", systemImage: "square.and.arrow.up")
+                            }
                         }
                     } label: {
                         Image(systemName: "ellipsis.circle")
@@ -261,6 +271,15 @@ struct MangaDetailView: View {
                     }
             }
             .presentationDetents([.medium])
+        }
+        .sheet(isPresented: $migrating) {
+            MigrateSourceView(manga: manga) { newManga, newChapters in
+                manga = newManga
+                chapters = newChapters
+                siteURL = nil
+                selectingChapters = false
+                selectedChapters = []
+            }
         }
     }
 
