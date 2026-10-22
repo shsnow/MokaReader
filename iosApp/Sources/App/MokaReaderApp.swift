@@ -68,6 +68,18 @@ struct RootView: View {
         )
     }
 
+    /// Opt-in library refresh on launch, throttled so quick app switches do not re-run it.
+    private func updateOnLaunchIfDue() {
+        guard AppSettings.shared.updateOnLaunch else { return }
+        let defaults = UserDefaults.standard
+        let last = defaults.object(forKey: "lastLaunchUpdate") as? Date ?? .distantPast
+        guard Date().timeIntervalSince(last) > 6 * 3600 else { return }
+        defaults.set(Date(), forKey: "lastLaunchUpdate")
+        LibraryUpdater.shared.refreshAll(
+            library: LibraryStore.shared, extensions: ExtensionManager.shared
+        )
+    }
+
     var body: some View {
         TabView(selection: tabSelection) {
             NavigationStack { LibraryView() }
@@ -86,6 +98,7 @@ struct RootView: View {
                 .tabItem { Label("Ajustes", systemImage: "gearshape") }
                 .tag(4)
         }
+        .onAppear { updateOnLaunchIfDue() }
         .alert(
             "Algo salió mal",
             isPresented: Binding(

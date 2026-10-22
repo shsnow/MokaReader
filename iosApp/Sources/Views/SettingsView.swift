@@ -1,22 +1,12 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// The settings hub: short, with each area on its own page, like the system Settings app.
 struct SettingsView: View {
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var extensions: ExtensionManager
-    @EnvironmentObject private var engine: EngineStatus
-    @EnvironmentObject private var downloads: DownloadManager
     @EnvironmentObject private var library: LibraryStore
-
-    @State private var showingImporter = false
-    @State private var importing = false
-    @State private var importSummary: MihonImportSummary?
-    @State private var importError: String?
-    @State private var exportDocument: TachibkDocument?
-    @State private var exportError: String?
-    @State private var cacheBytes: Int64 = 0
-    @State private var clearingCookies = false
-    @State private var cookiesResult: String?
+    @EnvironmentObject private var downloads: DownloadManager
 
     private let commonLanguages = ["all", "es", "es-419", "en", "pt-BR", "fr", "it", "de", "ja", "ko", "zh"]
 
@@ -25,6 +15,104 @@ struct SettingsView: View {
         let fromSources = extensions.allSources.map(\.lang) + extensions.catalog.flatMap(\.languages)
         return (commonLanguages + fromSources.sorted()).filter { seen.insert($0).inserted }
     }
+
+    var body: some View {
+        Form {
+            Section {
+                NavigationLink {
+                    ReaderSettingsView()
+                } label: {
+                    hubRow("Lectura", symbol: "book")
+                }
+                NavigationLink {
+                    LibrarySettingsView()
+                } label: {
+                    hubRow("Biblioteca", symbol: "books.vertical")
+                }
+                NavigationLink {
+                    DownloadSettingsView()
+                } label: {
+                    HStack {
+                        hubRow("Descargas", symbol: "arrow.down.circle")
+                        Spacer()
+                        if !downloads.queue.isEmpty {
+                            Text("\(downloads.queue.count) en cola")
+                                .font(.footnote)
+                                .foregroundStyle(Color.moka)
+                        }
+                    }
+                }
+                NavigationLink {
+                    LanguagePicker(options: languageOptions)
+                } label: {
+                    HStack {
+                        hubRow("Idiomas de fuentes", symbol: "globe")
+                        Spacer()
+                        Text(settings.languages.isEmpty ? "Todos" : "\(settings.languages.count)")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            Section {
+                NavigationLink {
+                    InsightsView()
+                } label: {
+                    hubRow("Estadísticas de lectura", symbol: "chart.bar")
+                }
+                NavigationLink {
+                    DataSettingsView()
+                } label: {
+                    hubRow("Copias de seguridad", symbol: "arrow.triangle.2.circlepath")
+                }
+                NavigationLink {
+                    AdvancedSettingsView()
+                } label: {
+                    hubRow("Avanzado", symbol: "wrench.and.screwdriver")
+                }
+            }
+
+            Section {
+                HStack {
+                    Text("Versión")
+                    Spacer()
+                    Text(appVersion).foregroundStyle(.secondary)
+                }
+                NavigationLink("Licencias y créditos") { LicensesView() }
+            } header: {
+                Text("Acerca de")
+            } footer: {
+                Label(
+                    "MokaReader es para toda la familia: las extensiones y series para adultos se bloquean siempre.",
+                    systemImage: "checkmark.shield"
+                )
+            }
+        }
+        .navigationTitle("Ajustes")
+    }
+
+    private func hubRow(_ title: String, symbol: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: symbol)
+                .font(.body)
+                .foregroundStyle(Color.moka)
+                .frame(width: 26)
+            Text(title)
+        }
+    }
+
+    private var appVersion: String {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        return "\(version) (\(build))"
+    }
+}
+
+// MARK: - Lectura
+
+struct ReaderSettingsView: View {
+    @EnvironmentObject private var settings: AppSettings
 
     var body: some View {
         Form {
@@ -42,22 +130,53 @@ struct SettingsView: View {
                     Text("Pequeño").tag(0.04)
                     Text("Mediano").tag(0.08)
                 }
-                Toggle("Zonas de toque para pasar página", isOn: $settings.tapZonesEnabled)
-                Toggle("Mantener la pantalla encendida", isOn: $settings.keepScreenAwake)
-                NavigationLink("Estadísticas de lectura") { InsightsView() }
             } header: {
-                Text("Lectura")
+                Text("Página")
             } footer: {
                 Text("Manhwa, manhua y webtoons se abren en modo vertical. Puedes cambiar el modo de cada serie desde su ficha o dentro del lector.")
             }
 
-            Section("Biblioteca") {
+            Section {
+                Toggle("Zonas de toque para pasar página", isOn: $settings.tapZonesEnabled)
+                if settings.tapZonesEnabled {
+                    Toggle("Invertir zonas de toque", isOn: $settings.invertTapZones)
+                }
+                Toggle("Mostrar número de página", isOn: $settings.alwaysShowPageNumber)
+                Toggle("Mantener la pantalla encendida", isOn: $settings.keepScreenAwake)
+            } header: {
+                Text("Controles")
+            } footer: {
+                Text(
+                    settings.tapZonesEnabled
+                        ? "Con las zonas invertidas, el borde que avanza queda al otro lado: útil para leer con la otra mano."
+                        : "El número de página se muestra chico en una esquina mientras los controles están ocultos."
+                )
+            }
+        }
+        .navigationTitle("Lectura")
+    }
+}
+
+// MARK: - Biblioteca
+
+struct LibrarySettingsView: View {
+    @EnvironmentObject private var settings: AppSettings
+    @EnvironmentObject private var library: LibraryStore
+
+    var body: some View {
+        Form {
+            Section("Cuadrícula") {
                 Picker("Series por fila", selection: $settings.gridColumns) {
                     Text("2").tag(2)
                     Text("3").tag(3)
                     Text("4").tag(4)
                 }
                 .pickerStyle(.segmented)
+                Toggle("Insignias de capítulos sin leer", isOn: $settings.showUnreadBadges)
+                Toggle("Fila \"Seguir leyendo\"", isOn: $settings.showContinueRow)
+            }
+
+            Section {
                 NavigationLink {
                     CategoriesView()
                 } label: {
@@ -70,25 +189,28 @@ struct SettingsView: View {
                 }
             }
 
-            Section("Apariencia") {
-                Picker("Tema", selection: $settings.appTheme) {
-                    ForEach(AppTheme.allCases) { Text($0.title).tag($0) }
-                }
+            Section {
+                Toggle("Actualizar al abrir la app", isOn: $settings.updateOnLaunch)
+            } header: {
+                Text("Actualización")
+            } footer: {
+                Text("Busca capítulos nuevos de tus series al abrir MokaReader, como mucho cada 6 horas. También puedes actualizar cuando quieras desde Actividad.")
             }
+        }
+        .navigationTitle("Biblioteca")
+    }
+}
 
-            Section("Contenido") {
-                NavigationLink {
-                    LanguagePicker(options: languageOptions)
-                } label: {
-                    HStack {
-                        Text("Idiomas")
-                        Spacer()
-                        Text(settings.languages.isEmpty ? "Todos" : "\(settings.languages.count)")
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
+// MARK: - Descargas
 
+struct DownloadSettingsView: View {
+    @EnvironmentObject private var settings: AppSettings
+    @EnvironmentObject private var downloads: DownloadManager
+
+    @State private var cacheBytes: Int64 = 0
+
+    var body: some View {
+        Form {
             Section {
                 NavigationLink {
                     DownloadsView()
@@ -108,8 +230,16 @@ struct SettingsView: View {
                 Picker("Páginas simultáneas", selection: $settings.downloadBatch) {
                     ForEach(1...5, id: \.self) { Text("\($0)").tag($0) }
                 }
+            }
+
+            Section {
                 Toggle("Descargar capítulos nuevos", isOn: $settings.autoDownloadUpdates)
                 Toggle("Borrar al terminar de leer", isOn: $settings.deleteAfterReading)
+            } footer: {
+                Text("Con la descarga automática, al actualizar la biblioteca los capítulos nuevos de tus series se guardan solos para leer sin conexión.")
+            }
+
+            Section {
                 Button {
                     Task {
                         await ImagePipeline.shared.clearCaches()
@@ -122,12 +252,30 @@ struct SettingsView: View {
                         Text(cacheBytes.byteText).foregroundStyle(.secondary)
                     }
                 }
-            } header: {
-                Text("Descargas")
             } footer: {
-                Text("Con la descarga automática, al actualizar la biblioteca los capítulos nuevos de tus series se guardan solos para leer sin conexión.")
+                Text("La caché guarda portadas y páginas vistas recién para no volver a bajarlas.")
             }
+        }
+        .navigationTitle("Descargas")
+        .task { cacheBytes = await ImagePipeline.shared.diskCacheBytes() }
+    }
+}
 
+// MARK: - Copias de seguridad
+
+struct DataSettingsView: View {
+    @EnvironmentObject private var library: LibraryStore
+    @EnvironmentObject private var extensions: ExtensionManager
+
+    @State private var showingImporter = false
+    @State private var importing = false
+    @State private var importSummary: MihonImportSummary?
+    @State private var importError: String?
+    @State private var exportDocument: TachibkDocument?
+    @State private var exportError: String?
+
+    var body: some View {
+        Form {
             Section {
                 Button {
                     showingImporter = true
@@ -149,67 +297,11 @@ struct SettingsView: View {
                     }
                 }
                 .disabled(library.entries.isEmpty)
-            } header: {
-                Text("Datos")
             } footer: {
                 Text("La copia usa el formato .tachibk: puedes restaurarla aquí o en Mihon. Lo que ya tienes en MokaReader se conserva y se combina.")
             }
-
-            Section {
-                Label("MokaReader es para toda la familia: las extensiones y series para adultos se bloquean siempre.", systemImage: "checkmark.shield")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section {
-                Button {
-                    clearCookies()
-                } label: {
-                    HStack {
-                        Text("Limpiar cookies de las fuentes")
-                        Spacer()
-                        if clearingCookies {
-                            ProgressView()
-                        } else if let cookiesResult {
-                            Text(cookiesResult)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-                .disabled(clearingCookies || extensions.installed.isEmpty)
-            } header: {
-                Text("Avanzado")
-            } footer: {
-                Text("Borra inicios de sesión y permisos guardados de los sitios. Útil cuando una fuente se queda pegada.")
-            }
-
-            Section("Motor de extensiones") {
-                HStack {
-                    Text("Estado")
-                    Spacer()
-                    Text(engineText)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.trailing)
-                }
-                if !engine.state.isReady {
-                    Button("Iniciar motor") {
-                        Task { _ = try? await JVMEngine.shared.start() }
-                    }
-                    .disabled(engine.state == .starting)
-                }
-            }
-
-            Section("Acerca de") {
-                HStack {
-                    Text("Versión")
-                    Spacer()
-                    Text(appVersion).foregroundStyle(.secondary)
-                }
-                NavigationLink("Licencias y créditos") { LicensesView() }
-            }
         }
-        .navigationTitle("Ajustes")
-        .task { cacheBytes = await ImagePipeline.shared.diskCacheBytes() }
+        .navigationTitle("Copias de seguridad")
         .fileExporter(
             isPresented: Binding(
                 get: { exportDocument != nil },
@@ -271,6 +363,57 @@ struct SettingsView: View {
             }
         }
     }
+}
+
+// MARK: - Avanzado
+
+struct AdvancedSettingsView: View {
+    @EnvironmentObject private var extensions: ExtensionManager
+    @EnvironmentObject private var engine: EngineStatus
+
+    @State private var clearingCookies = false
+    @State private var cookiesResult: String?
+
+    var body: some View {
+        Form {
+            Section {
+                Button {
+                    clearCookies()
+                } label: {
+                    HStack {
+                        Text("Limpiar cookies de las fuentes")
+                        Spacer()
+                        if clearingCookies {
+                            ProgressView()
+                        } else if let cookiesResult {
+                            Text(cookiesResult)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .disabled(clearingCookies || extensions.installed.isEmpty)
+            } footer: {
+                Text("Borra inicios de sesión y permisos guardados de los sitios. Útil cuando una fuente se queda pegada.")
+            }
+
+            Section("Motor de extensiones") {
+                HStack {
+                    Text("Estado")
+                    Spacer()
+                    Text(engineText)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.trailing)
+                }
+                if !engine.state.isReady {
+                    Button("Iniciar motor") {
+                        Task { _ = try? await JVMEngine.shared.start() }
+                    }
+                    .disabled(engine.state == .starting)
+                }
+            }
+        }
+        .navigationTitle("Avanzado")
+    }
 
     private func clearCookies() {
         clearingCookies = true
@@ -296,14 +439,9 @@ struct SettingsView: View {
             case .failed(let message): return "Error: \(message)"
         }
     }
-
-    private var appVersion: String {
-        let info = Bundle.main.infoDictionary
-        let version = info?["CFBundleShortVersionString"] as? String ?? "?"
-        let build = info?["CFBundleVersion"] as? String ?? "?"
-        return "\(version) (\(build))"
-    }
 }
+
+// MARK: - Shared pieces
 
 struct LanguagePicker: View {
     let options: [String]

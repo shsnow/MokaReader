@@ -183,6 +183,20 @@ struct ReaderView: View {
 
                 if showOverlay {
                     overlay
+                } else if settings.alwaysShowPageNumber && !pages.isEmpty {
+                    // Discreet page counter while the controls are hidden.
+                    Text("\(min(currentPage + 1, pages.count)) / \(pages.count)")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(controlColor.opacity(0.65))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(
+                            (isLightBackground ? Color.white : Color.black).opacity(0.55),
+                            in: Capsule()
+                        )
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                        .padding(.bottom, 4)
+                        .allowsHitTesting(false)
                 }
             }
         }
@@ -461,7 +475,7 @@ struct ReaderView: View {
             withAnimation(.easeInOut(duration: 0.2)) { showOverlay.toggle() }
             return
         }
-        let forward: Bool
+        var forward: Bool
         if position < 0.3 {
             forward = mode == .rightToLeft
         } else if position > 0.7 {
@@ -470,6 +484,8 @@ struct ReaderView: View {
             withAnimation(.easeInOut(duration: 0.2)) { showOverlay.toggle() }
             return
         }
+        // For reading with the other hand.
+        if settings.invertTapZones { forward.toggle() }
         let target = currentPage + (forward ? 1 : -1)
         guard target >= 0, target <= pages.count else { return }
         withAnimation(.easeInOut(duration: 0.25)) { currentPage = target }

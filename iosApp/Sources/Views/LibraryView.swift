@@ -45,7 +45,8 @@ struct LibraryView: View {
     }
 
     private var showsContinueRow: Bool {
-        !isSelecting && query.isEmpty && selectedCategory == nil && !continueReading.isEmpty
+        settings.showContinueRow && !isSelecting && query.isEmpty && selectedCategory == nil
+            && !continueReading.isEmpty
     }
 
     var body: some View {
@@ -73,7 +74,8 @@ struct LibraryView: View {
                         MangaGrid(
                             items: items.map(\.manga),
                             badge: { manga in
-                                library.entry(for: manga).map { library.unreadCount(for: $0) } ?? 0
+                                guard settings.showUnreadBadges else { return 0 }
+                                return library.entry(for: manga).map { library.unreadCount(for: $0) } ?? 0
                             },
                             onItemLongPress: { manga in
                                 guard !isSelecting else { return }

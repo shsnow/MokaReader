@@ -124,6 +124,31 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(autoScrollSpeed, forKey: "autoScrollSpeed") }
     }
 
+    /// Swaps which edge goes forward in paged mode, for reading with the other hand.
+    @Published var invertTapZones: Bool {
+        didSet { defaults.set(invertTapZones, forKey: "invertTapZones") }
+    }
+
+    /// Small page counter in the corner while the controls are hidden.
+    @Published var alwaysShowPageNumber: Bool {
+        didSet { defaults.set(alwaysShowPageNumber, forKey: "alwaysShowPageNumber") }
+    }
+
+    /// Unread-count badges on the library covers.
+    @Published var showUnreadBadges: Bool {
+        didSet { defaults.set(showUnreadBadges, forKey: "showUnreadBadges") }
+    }
+
+    /// The "Seguir leyendo" row at the top of the library.
+    @Published var showContinueRow: Bool {
+        didSet { defaults.set(showContinueRow, forKey: "showContinueRow") }
+    }
+
+    /// Refresh the library when the app opens, at most every six hours.
+    @Published var updateOnLaunch: Bool {
+        didSet { defaults.set(updateOnLaunch, forKey: "updateOnLaunch") }
+    }
+
     private init() {
         // A local, so nothing reads `self` before every stored property is initialized.
         let defaults = UserDefaults.standard
@@ -149,6 +174,11 @@ final class AppSettings: ObservableObject {
         autoDownloadUpdates = defaults.bool(forKey: "autoDownloadUpdates")
         let speed = defaults.double(forKey: "autoScrollSpeed")
         autoScrollSpeed = speed == 0 ? 80 : min(max(speed, 20), 300)
+        invertTapZones = defaults.bool(forKey: "invertTapZones")
+        alwaysShowPageNumber = defaults.object(forKey: "alwaysShowPageNumber") as? Bool ?? true
+        showUnreadBadges = defaults.object(forKey: "showUnreadBadges") as? Bool ?? true
+        showContinueRow = defaults.object(forKey: "showContinueRow") as? Bool ?? true
+        updateOnLaunch = defaults.bool(forKey: "updateOnLaunch")
     }
 
     func shows(language: String) -> Bool {

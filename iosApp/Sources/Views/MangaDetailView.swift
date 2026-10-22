@@ -21,6 +21,8 @@ struct MangaDetailView: View {
     @State private var chapterQuery = ""
     @State private var siteURL: URL?
     @State private var migrating = false
+    /// Long-pressed chapter while selecting: anchors the "este y anteriores" range actions.
+    @State private var rangeAnchor: ChapterItem?
 
     init(manga: MangaItem) {
         _manga = State(initialValue: manga)
@@ -281,6 +283,52 @@ struct MangaDetailView: View {
                 selectedChapters = []
             }
         }
+        .confirmationDialog(
+            "Desde este capítulo",
+            isPresented: Binding(
+                get: { rangeAnchor != nil },
+                set: { if !$0 { rangeAnchor = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: rangeAnchor
+        ) { anchor in
+            let through = chaptersThrough(anchor)
+            let pending = through.filter { !downloads.isDownloaded(manga: manga, chapter: $0) }
+            Button("Marcar leídos este y anteriores (\(through.count))") {
+                library.setRead(true, chapterURLs: through.map(\.url), in: manga)
+            }
+            Button("Marcar no leídos este y anteriores") {
+                library.setRead(false, chapterURLs: through.map(\.url), in: manga)
+            }
+            if !pending.isEmpty && installed != nil {
+                Button("Descargar este y anteriores (\(pending.count))") {
+                    download(pending)
+                }
+            }
+            Button("Seleccionar este y anteriores") {
+                selectedChapters.formUnion(through.map(\.url))
+            }
+            Button("Seleccionar este y siguientes") {
+                selectedChapters.formUnion(chaptersFrom(anchor).map(\.url))
+            }
+            Button("Cancelar", role: .cancel) {}
+        } message: { anchor in
+            Text(anchor.name)
+        }
+    }
+
+    /// The anchor and every older chapter, oldest first.
+    private func chaptersThrough(_ anchor: ChapterItem) -> [ChapterItem] {
+        let ordered = ascending
+        guard let index = ordered.firstIndex(where: { $0.url == anchor.url }) else { return [] }
+        return Array(ordered[...index])
+    }
+
+    /// The anchor and every newer chapter, oldest first.
+    private func chaptersFrom(_ anchor: ChapterItem) -> [ChapterItem] {
+        let ordered = ascending
+        guard let index = ordered.firstIndex(where: { $0.url == anchor.url }) else { return [] }
+        return Array(ordered[index...])
     }
 
     private var downloadMenu: some View {
@@ -409,10 +457,14 @@ struct MangaDetailView: View {
         .buttonStyle(.plain)
         .simultaneousGesture(
             LongPressGesture(minimumDuration: 0.4).onEnded { _ in
-                guard !selectingChapters else { return }
-                selectingChapters = true
-                selectedChapters = [chapter.url]
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                if selectingChapters {
+                    // A second long press anchors the range actions on this chapter.
+                    rangeAnchor = chapter
+                } else {
+                    selectingChapters = true
+                    selectedChapters = [chapter.url]
+                }
             }
         )
         .swipeActions(edge: .trailing) {
