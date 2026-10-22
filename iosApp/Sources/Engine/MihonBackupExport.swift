@@ -93,6 +93,9 @@ enum MihonBackupExport {
                         if progress?.readChapters.contains(chapter.url) == true {
                             backupChapter.field(4, bool: true)
                         }
+                        if progress?.bookmarkedChapters?.contains(chapter.url) == true {
+                            backupChapter.field(5, bool: true)
+                        }
                         if chapter.dateUpload > 0 {
                             backupChapter.field(8, int64: chapter.dateUpload)
                         }

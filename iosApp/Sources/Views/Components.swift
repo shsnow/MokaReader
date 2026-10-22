@@ -91,6 +91,8 @@ struct MangaGrid<Footer: View>: View {
     let items: [MangaItem]
     var badge: (MangaItem) -> Int = { _ in 0 }
     var onItemAppear: (MangaItem) -> Void = { _ in }
+    /// Called on a long press when not selecting; the library uses it to start selection.
+    var onItemLongPress: ((MangaItem) -> Void)? = nil
     /// Non-nil puts the grid in selection mode: taps toggle membership instead of navigating.
     var selection: Binding<Set<String>>? = nil
     @ViewBuilder var footer: () -> Footer
@@ -122,6 +124,13 @@ struct MangaGrid<Footer: View>: View {
                             MangaCell(manga: manga, badge: badge(manga))
                         }
                         .buttonStyle(.plain)
+                        .simultaneousGesture(
+                            LongPressGesture(minimumDuration: 0.4).onEnded { _ in
+                                guard let onItemLongPress else { return }
+                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                onItemLongPress(manga)
+                            }
+                        )
                         .onAppear { onItemAppear(manga) }
                     }
                 }

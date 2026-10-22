@@ -57,6 +57,11 @@ struct LibraryView: View {
                             badge: { manga in
                                 library.entry(for: manga).map { library.unreadCount(for: $0) } ?? 0
                             },
+                            onItemLongPress: { manga in
+                                guard !isSelecting else { return }
+                                isSelecting = true
+                                selection = [manga.id]
+                            },
                             selection: isSelecting ? selectionBinding : nil
                         ) {
                             EmptyView()

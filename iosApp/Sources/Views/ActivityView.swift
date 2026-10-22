@@ -52,6 +52,7 @@ struct ActivityView: View {
 
 private struct UpdatesList: View {
     @EnvironmentObject private var library: LibraryStore
+    @EnvironmentObject private var extensions: ExtensionManager
     @EnvironmentObject private var updater: LibraryUpdater
 
     private struct Day: Identifiable {
@@ -105,6 +106,9 @@ private struct UpdatesList: View {
             }
         }
         .listStyle(.plain)
+        .refreshable {
+            await updater.refresh(library: library, extensions: extensions)
+        }
     }
 
     private func row(_ manga: MangaItem, _ chapter: ChapterItem) -> some View {
@@ -123,7 +127,14 @@ private struct UpdatesList: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
-            if !read {
+            if updater.lastNewURLs.contains(chapter.url) {
+                Text("Nuevo")
+                    .font(.caption2.bold())
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.moka.opacity(0.15), in: Capsule())
+                    .foregroundStyle(Color.moka)
+            } else if !read {
                 Circle()
                     .fill(Color.moka)
                     .frame(width: 8, height: 8)

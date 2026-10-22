@@ -25,6 +25,7 @@ struct MihonBackup {
         var name = ""
         var scanlator: String?
         var read = false
+        var bookmark = false
         var dateUpload: Int64 = 0
         var number: Float?
         var sourceOrder = 0
@@ -125,6 +126,7 @@ struct MihonBackup {
                 case (2, .bytes(let value)): chapter.name = string(value) ?? ""
                 case (3, .bytes(let value)): chapter.scanlator = string(value)
                 case (4, .varint(let value)): chapter.read = value != 0
+                case (5, .varint(let value)): chapter.bookmark = value != 0
                 case (8, .varint(let value)): chapter.dateUpload = Int64(bitPattern: value)
                 case (9, .fixed32(let value)):
                     let number = Float(bitPattern: value)
@@ -236,7 +238,8 @@ enum MihonBackupImporter {
                 continue
             }
             if !installedSources.contains(manga.source) {
-                missing.insert(backup.sourceNames[manga.source] ?? "fuente \(manga.source)")
+                let name = backup.sourceNames[manga.source] ?? ""
+                missing.insert(name.isEmpty ? "fuente \(manga.source)" : name)
             }
 
             // Mihon stores chapters with sourceOrder 0 = newest; MokaReader lists newest first.
@@ -254,6 +257,8 @@ enum MihonBackupImporter {
 
             var progress = MangaProgress()
             progress.readChapters = Set(ordered.lazy.filter(\.read).map(\.url))
+            let bookmarked = Set(ordered.lazy.filter(\.bookmark).map(\.url))
+            progress.bookmarkedChapters = bookmarked.isEmpty ? nil : bookmarked
             if let last = manga.history.max(by: { $0.lastRead < $1.lastRead }), last.lastRead > 0 {
                 progress.lastReadChapter = last.url
                 progress.lastReadAt = Date(timeIntervalSince1970: TimeInterval(last.lastRead) / 1000)

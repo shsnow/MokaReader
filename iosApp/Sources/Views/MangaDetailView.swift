@@ -340,6 +340,7 @@ struct MangaDetailView: View {
 
     private func chapterRow(_ chapter: ChapterItem) -> some View {
         let read = library.isRead(chapter, in: manga)
+        let bookmarked = library.isBookmarked(chapter, in: manga)
         let state = downloads.state(manga: manga, chapter: chapter)
         let isSelected = selectedChapters.contains(chapter.url)
         return Button {
@@ -370,6 +371,11 @@ struct MangaDetailView: View {
                     .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                if bookmarked {
+                    Image(systemName: "bookmark.fill")
+                        .font(.caption)
+                        .foregroundStyle(Color.moka)
+                }
                 if state == .none, !selectingChapters, installed != nil {
                     Image(systemName: "arrow.down.circle")
                         .font(.title3)
@@ -382,34 +388,44 @@ struct MangaDetailView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: 0.4).onEnded { _ in
+                guard !selectingChapters else { return }
+                selectingChapters = true
+                selectedChapters = [chapter.url]
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            }
+        )
         .swipeActions(edge: .trailing) {
             if !selectingChapters {
                 Button(read ? "No leído" : "Leído") {
                     library.setRead(!read, chapter: chapter, in: manga)
                 }
                 .tint(read ? .gray : .moka)
+                if state == .downloaded {
+                    Button("Borrar desc.", role: .destructive) {
+                        downloads.delete(manga: manga, chapter: chapter)
+                    }
+                }
             }
         }
         .swipeActions(edge: .leading) {
             if !selectingChapters {
-                if state == .downloaded {
-                    Button("Borrar", role: .destructive) {
-                        downloads.delete(manga: manga, chapter: chapter)
-                    }
-                } else {
-                    Button("Descargar") {
-                        download([chapter])
-                    }
-                    .tint(.blue)
+                Button(bookmarked ? "Quitar" : "Favorito") {
+                    library.toggleBookmark(chapterURLs: [chapter.url], in: manga)
                 }
+                .tint(.orange)
             }
         }
     }
 
     private var chapterSelectionBar: some View {
         HStack(spacing: 4) {
-            selectionBarButton("Descargar", symbol: "arrow.down.circle") {
+            selectionBarButton("Bajar", symbol: "arrow.down.circle") {
                 download(selectedItems.filter { !downloads.isDownloaded(manga: manga, chapter: $0) })
+            }
+            selectionBarButton("Favorito", symbol: "bookmark") {
+                library.toggleBookmark(chapterURLs: selectedItems.map(\.url), in: manga)
             }
             selectionBarButton("Leído", symbol: "checkmark.circle") {
                 library.setRead(true, chapterURLs: selectedItems.map(\.url), in: manga)
@@ -417,7 +433,7 @@ struct MangaDetailView: View {
             selectionBarButton("No leído", symbol: "circle") {
                 library.setRead(false, chapterURLs: selectedItems.map(\.url), in: manga)
             }
-            selectionBarButton("Borrar desc.", symbol: "trash", role: .destructive) {
+            selectionBarButton("Borrar", symbol: "trash", role: .destructive) {
                 for chapter in selectedItems {
                     downloads.delete(manga: manga, chapter: chapter)
                 }

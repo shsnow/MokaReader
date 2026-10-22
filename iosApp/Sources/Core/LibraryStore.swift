@@ -40,6 +40,8 @@ struct MangaProgress: Codable, Hashable {
     var readingMode: ReadingMode?
     /// Accumulated seconds spent in the reader for this series.
     var readSeconds: Double? = nil
+    /// Chapters the user starred to come back to.
+    var bookmarkedChapters: Set<String>? = nil
 }
 
 /// The user's library and reading progress. Progress is kept for every manga opened, not only
@@ -317,6 +319,25 @@ final class LibraryStore: ObservableObject {
         saveProgress()
     }
 
+    func isBookmarked(_ chapter: ChapterItem, in manga: MangaItem) -> Bool {
+        progress[manga.id]?.bookmarkedChapters?.contains(chapter.url) ?? false
+    }
+
+    /// Adds the bookmark to every given chapter; if all already have it, removes it instead.
+    func toggleBookmark(chapterURLs: [String], in manga: MangaItem) {
+        var value = progress[manga.id] ?? MangaProgress()
+        var set = value.bookmarkedChapters ?? []
+        let adding = !chapterURLs.allSatisfy(set.contains)
+        if adding {
+            set.formUnion(chapterURLs)
+        } else {
+            set.subtract(chapterURLs)
+        }
+        value.bookmarkedChapters = set.isEmpty ? nil : set
+        progress[manga.id] = value
+        saveProgress()
+    }
+
     /// Marks the given chapters of one series, saving once.
     func setRead(_ read: Bool, chapterURLs: [String], in manga: MangaItem) {
         var value = progress[manga.id] ?? MangaProgress()
@@ -364,6 +385,11 @@ final class LibraryStore: ObservableObject {
                 current.lastReadChapter = item.progress.lastReadChapter ?? current.lastReadChapter
             }
             if current.readingMode == nil { current.readingMode = item.progress.readingMode }
+            if let bookmarks = item.progress.bookmarkedChapters, !bookmarks.isEmpty {
+                var set = current.bookmarkedChapters ?? []
+                set.formUnion(bookmarks)
+                current.bookmarkedChapters = set
+            }
             progress[id] = current
         }
         saveLibrary()
