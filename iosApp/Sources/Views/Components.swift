@@ -87,6 +87,14 @@ struct MangaCell: View {
     }
 }
 
+/// Reports the grid content's vertical offset, so the library can collapse its header rows.
+private struct GridOffsetKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
 struct MangaGrid<Footer: View>: View {
     let items: [MangaItem]
     var badge: (MangaItem) -> Int = { _ in 0 }
@@ -95,6 +103,8 @@ struct MangaGrid<Footer: View>: View {
     var onItemLongPress: ((MangaItem) -> Void)? = nil
     /// Non-nil puts the grid in selection mode: taps toggle membership instead of navigating.
     var selection: Binding<Set<String>>? = nil
+    /// Reports the scroll offset (0 at the top, negative scrolling down).
+    var onScroll: ((CGFloat) -> Void)? = nil
     @ViewBuilder var footer: () -> Footer
 
     @EnvironmentObject private var settings: AppSettings
@@ -105,6 +115,15 @@ struct MangaGrid<Footer: View>: View {
 
     var body: some View {
         ScrollView {
+            if onScroll != nil {
+                GeometryReader { proxy in
+                    Color.clear.preference(
+                        key: GridOffsetKey.self,
+                        value: proxy.frame(in: .named("mangaGrid")).minY
+                    )
+                }
+                .frame(height: 0)
+            }
             LazyVGrid(columns: columns, spacing: 16) {
                 ForEach(items) { manga in
                     if let selection {
@@ -139,6 +158,10 @@ struct MangaGrid<Footer: View>: View {
             .padding(.top, 8)
             footer()
                 .padding(.vertical, 24)
+        }
+        .coordinateSpace(name: "mangaGrid")
+        .onPreferenceChange(GridOffsetKey.self) { value in
+            onScroll?(value)
         }
     }
 }

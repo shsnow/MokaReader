@@ -11,7 +11,9 @@ struct ActivityView: View {
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var extensions: ExtensionManager
     @EnvironmentObject private var updater: LibraryUpdater
+    @ObservedObject private var shortcuts = TabShortcuts.shared
     @State private var section: Section = .updates
+    @State private var showingDownloads = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -30,6 +32,13 @@ struct ActivityView: View {
         .navigationTitle("Actividad")
         .navigationDestination(for: MangaItem.self) { manga in
             MangaDetailView(manga: manga)
+        }
+        // Tapping Actividad again in the tab bar jumps to the downloads in progress.
+        .navigationDestination(isPresented: $showingDownloads) {
+            DownloadsView()
+        }
+        .onChange(of: shortcuts.activityReselected) { _ in
+            showingDownloads = true
         }
         .toolbar {
             if section == .updates {

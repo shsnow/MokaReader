@@ -41,13 +41,35 @@ struct MokaReaderApp: App {
     }
 }
 
+/// Signals from the tab bar: tapping a tab that is already selected triggers its shortcut.
+@MainActor
+final class TabShortcuts: ObservableObject {
+    static let shared = TabShortcuts()
+    /// Bumped when Actividad is tapped while already open; Actividad then shows the downloads.
+    @Published var activityReselected = 0
+    private init() {}
+}
+
 struct RootView: View {
     @EnvironmentObject private var extensions: ExtensionManager
     /// The app opens where it was left.
     @AppStorage("lastTab") private var selectedTab = 0
 
+    /// Re-selecting the current tab reaches the setter with the same value.
+    private var tabSelection: Binding<Int> {
+        Binding(
+            get: { selectedTab },
+            set: { value in
+                if value == 2 && selectedTab == 2 {
+                    TabShortcuts.shared.activityReselected += 1
+                }
+                selectedTab = value
+            }
+        )
+    }
+
     var body: some View {
-        TabView(selection: $selectedTab) {
+        TabView(selection: tabSelection) {
             NavigationStack { LibraryView() }
                 .tabItem { Label("Biblioteca", systemImage: "books.vertical") }
                 .tag(0)
