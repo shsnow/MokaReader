@@ -336,11 +336,24 @@ final class LocalStore {
 
     // MARK: - Bundled sample
 
+    private static let sampleSeededKey = "localSampleSeeded"
+    private static let sampleTitle = "Guía de Wizard Cat"
+
+    /// The guide comic's library identity, to tell whether it is still there.
+    nonisolated static var sampleManga: MangaItem { mangaItem(folderName: sampleTitle) }
+
+    /// Puts the guide comic back after the user removed it (Ajustes → Acerca de).
+    func restoreSample(library: LibraryStore) {
+        UserDefaults.standard.set(false, forKey: Self.sampleSeededKey)
+        seedSampleIfNeeded(library: library)
+    }
+
     /// On first launch the bundled guide comic joins the library, so the app has
-    /// readable content out of the box. Removing it is final: it is not re-seeded.
+    /// readable content out of the box. Removing it is final: it is not re-seeded
+    /// on its own, only through `restoreSample`.
     func seedSampleIfNeeded(library: LibraryStore) {
         let defaults = UserDefaults.standard
-        let key = "localSampleSeeded"
+        let key = Self.sampleSeededKey
         guard !defaults.bool(forKey: key) else { return }
         defaults.set(true, forKey: key)
         guard let bundled = Bundle.main.url(forResource: "guia-wizard-cat", withExtension: "cbz")
@@ -348,7 +361,7 @@ final class LocalStore {
         Task {
             // The copy and the cover extraction are blocking I/O: off the main actor.
             let seeded = await Task.detached { () -> (MangaItem, [ChapterItem])? in
-                let title = "Guía de Wizard Cat"
+                let title = Self.sampleTitle
                 let folder = Self.root.appendingPathComponent(title, isDirectory: true)
                 do {
                     try FileManager.default.createDirectory(

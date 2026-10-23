@@ -96,6 +96,11 @@ struct SettingsView: View {
                     Spacer()
                     Text(appVersion).foregroundStyle(.secondary)
                 }
+                if !library.contains(LocalStore.sampleManga) {
+                    Button("Restaurar el cómic de guía") {
+                        LocalStore.shared.restoreSample(library: library)
+                    }
+                }
                 NavigationLink("Licencias y créditos") { LicensesView() }
             } header: {
                 Text("Acerca de")
@@ -284,6 +289,7 @@ struct DownloadSettingsView: View {
 struct DataSettingsView: View {
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var extensions: ExtensionManager
+    @ObservedObject private var sync = SyncManager.shared
 
     @State private var showingImporter = false
     @State private var importing = false
@@ -291,9 +297,76 @@ struct DataSettingsView: View {
     @State private var importError: String?
     @State private var exportDocument: TachibkDocument?
     @State private var exportError: String?
+    @State private var pickingSyncFolder = false
 
     var body: some View {
         Form {
+            Section {
+                if !sync.isConfigured {
+                    Button("Elegir carpeta de sincronización") {
+                        pickingSyncFolder = true
+                    }
+                    // On its own button: a second fileImporter on the Form's chain
+                    // would fight the backup one.
+                    .fileImporter(
+                        isPresented: $pickingSyncFolder,
+                        allowedContentTypes: [.folder],
+                        allowsMultipleSelection: false
+                    ) { result in
+                        guard case .success(let urls) = result, let url = urls.first else { return }
+                        sync.setFolder(url)
+                        Task { await sync.sync(library: library, extensions: extensions) }
+                    }
+                    if let message = sync.lastError {
+                        Text(message)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                    }
+                } else {
+                    HStack {
+                        Text("Carpeta")
+                        Spacer()
+                        Text(sync.folderName ?? "")
+                            .foregroundStyle(.secondary)
+                    }
+                    Button {
+                        Task { await sync.sync(library: library, extensions: extensions) }
+                    } label: {
+                        HStack {
+                            Text("Sincronizar ahora")
+                            Spacer()
+                            if sync.isSyncing { ProgressView() }
+                        }
+                    }
+                    .disabled(sync.isSyncing)
+                    if let date = sync.lastSync {
+                        HStack {
+                            Text("Última sincronización")
+                            Spacer()
+                            Text(date.formatted(date: .abbreviated, time: .shortened))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    if let message = sync.lastError {
+                        Text(message)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                    }
+                    Button("Dejar de sincronizar", role: .destructive) {
+                        sync.clearFolder()
+                    }
+                }
+            } header: {
+                Text("Sincronización entre dispositivos")
+            } footer: {
+                Text(
+                    "Elige una carpeta en la nube (iCloud Drive, Google Drive, Dropbox…). " +
+                    "Wizard Cat Reader deja ahí su copia y combina las copias .tachibk que " +
+                    "encuentre, al abrir la app y al salir. Para sincronizar con Mihon en " +
+                    "Android, guarda sus copias automáticas en esta misma carpeta."
+                )
+            }
+
             Section {
                 Button {
                     showingImporter = true

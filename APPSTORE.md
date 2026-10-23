@@ -43,7 +43,10 @@ Material listo para copiar/pegar en App Store Connect. Lo que va entre ⟨ ⟩ s
 > TUS FUENTES, TUS DATOS
 > • Conecta tus propias fuentes y servidores autoalojados (por ejemplo Komga en tu red local).
 >   La app no incluye, aloja ni recomienda contenido: tú decides qué agregar.
+> • Importa tus propios cómics CBZ/ZIP desde la app Archivos y léelos sin conexión.
 > • Copias de seguridad en formato abierto .tachibk, para llevarte tu biblioteca contigo.
+> • Sincroniza entre dispositivos con tu propia nube (iCloud Drive, Google Drive, Dropbox…):
+>   sin cuentas ni servidores nuestros, compatible con las copias de Mihon en Android.
 > • Estadísticas de lectura calculadas en tu dispositivo.
 >
 > PARA TODA LA FAMILIA
@@ -66,8 +69,11 @@ Material listo para copiar/pegar en App Store Connect. Lo que va entre ⟨ ⟩ s
 >
 > YOUR SOURCES, YOUR DATA
 > • Connect your own sources and self-hosted servers (e.g. Komga on your local network). The
-> app includes, hosts and recommends no content — you decide what to add. • Open .tachibk
-> backups. • On-device reading stats.
+> app includes, hosts and recommends no content — you decide what to add. • Import your own
+> CBZ/ZIP comics from the Files app and read them offline. • Open .tachibk backups. • Sync
+> across devices through your own cloud folder (iCloud Drive, Google Drive, Dropbox…) — no
+> accounts, no servers of ours, compatible with Mihon backups on Android. • On-device
+> reading stats.
 >
 > FAMILY FRIENDLY
 > • Adult-flagged content is permanently blocked, with no way to enable it.

@@ -53,6 +53,7 @@ final class TabShortcuts: ObservableObject {
 struct RootView: View {
     @EnvironmentObject private var extensions: ExtensionManager
     @EnvironmentObject private var library: LibraryStore
+    @Environment(\.scenePhase) private var scenePhase
     /// The app opens where it was left.
     @AppStorage("lastTab") private var selectedTab = 0
 
@@ -106,6 +107,24 @@ struct RootView: View {
             updateOnLaunchIfDue()
             // A fresh catalog keeps the Extensiones update badge honest.
             Task { await extensions.refreshCatalogIfStale() }
+            // Cold start is not guaranteed to pass through the .active transition.
+            Task { await SyncManager.shared.sync(library: library, extensions: extensions) }
+        }
+        .onChange(of: scenePhase) { phase in
+            // Folder sync: merge what other devices left when coming forward; on the
+            // way out only export — iOS grants the background a short window.
+            switch phase {
+                case .active:
+                    Task { await SyncManager.shared.sync(library: library, extensions: extensions) }
+                case .background:
+                    Task {
+                        await SyncManager.shared.sync(
+                            library: library, extensions: extensions, exportOnly: true
+                        )
+                    }
+                default:
+                    break
+            }
         }
         .alert(
             "Algo salió mal",
