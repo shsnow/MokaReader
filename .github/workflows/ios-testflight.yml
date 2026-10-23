@@ -6,7 +6,10 @@ name: "iOS → TestFlight (firmado)"
 # Tres etapas: los jars del runtime JVM en Linux (barato), OpenJDK Mobile desde fuente en
 # macos-14 (~45-60 min la primera vez, después queda en caché) y la app en macos-26.
 #
-# Secrets: APPLE_TEAM_ID, ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8_BASE64
+# Secrets: APPLE_TEAM_ID, ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8_BASE64,
+#          BUILD_CERT_P12_BASE64 y CERT_P12_PASSWORD (los produce el workflow
+#          "Certificado de firma (una vez)"; sin ellos, cada corrida crearía un
+#          certificado nuevo hasta llenar la cuenta de Apple)
 # Variable opcional: BUNDLE_ID (por defecto cl.jonas.tachitest, el registro "MokaReader")
 
 on:
@@ -170,6 +173,33 @@ jobs:
             || { echo "::error::ASC_KEY_P8_BASE64 no decodifica a un archivo .p8 (falta BEGIN PRIVATE KEY)"; fail=1; }
           [ $fail -eq 0 ] && echo "Secrets OK: team ${TEAM_ID:0:3}…, key ${KEY_ID:0:3}…"
           exit $fail
+
+      # El runner es efímero: su llave privada muere con él, y la firma automática
+      # crearía un certificado "Apple Development" nuevo en cada corrida hasta topar
+      # el límite de la cuenta. Importando siempre el mismo certificado (el del
+      # workflow "Certificado de firma"), xcodebuild lo reutiliza y no crea ninguno.
+      - name: Importar certificado de firma
+        env:
+          CERT_P12_BASE64: ${{ secrets.BUILD_CERT_P12_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.CERT_P12_PASSWORD }}
+        run: |
+          [ -n "$CERT_P12_BASE64" ] || { echo "::error::Falta el secret BUILD_CERT_P12_BASE64: corre el workflow 'Certificado de firma (una vez)' y sigue los pasos de su cabecera"; exit 1; }
+          [ -n "$CERT_PASSWORD" ] || { echo "::error::Falta el secret CERT_P12_PASSWORD"; exit 1; }
+          echo "$CERT_P12_BASE64" | tr -d ' \r\n' | base64 --decode > signing.p12
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import signing.p12 -k "$KEYCHAIN_PATH" -P "$CERT_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S "apple-tool:,apple:,codesign:" \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH" > /dev/null
+          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
+          rm -f signing.p12
+          echo "Identidades disponibles:"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH" \
+            || { echo "::error::El .p12 no contiene una identidad de firma válida (¿CERT_P12_PASSWORD correcto?)"; exit 1; }
 
       # Build numbers 1 and 2 of this App Store Connect record were used by the TachiyomiAZ
       # test builds, so MokaReader's start above them.

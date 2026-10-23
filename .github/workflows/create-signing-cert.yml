@@ -1,0 +1,118 @@
+name: "Certificado de firma (una vez)"
+
+# Crea UN certificado "Apple Development" cuya llave privada queda guardada como
+# secret, para que cada corrida de CI lo reutilice en vez de crear uno nuevo
+# (los runners son efímeros: la llave muere con ellos y la cuenta se llena de
+# certificados hasta el límite de Apple).
+#
+# Pasos (una sola vez; de nuevo solo cuando el certificado venza, en ~1 año):
+#   1. Crea el secret CERT_P12_PASSWORD con una contraseña que inventes
+#      (Settings → Secrets and variables → Actions).
+#   2. Corre este workflow desde la pestaña Actions.
+#   3. Descarga el artifact "certificado-p12", abre el .txt y pega TODO su
+#      contenido en un secret nuevo llamado BUILD_CERT_P12_BASE64.
+#   4. En developer.apple.com → Certificates, borra los "Apple Development"
+#      viejos de las corridas anteriores (el recién creado es el más nuevo).
+#
+# El artifact solo contiene el certificado cifrado: sin CERT_P12_PASSWORD no sirve.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  certificate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Crear certificado vía App Store Connect API
+        env:
+          KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
+          P12_PASSWORD: ${{ secrets.CERT_P12_PASSWORD }}
+        run: |
+          set -e
+          [ -n "$P12_PASSWORD" ] || { echo "::error::Falta el secret CERT_P12_PASSWORD: invéntate una contraseña y créala como secret antes de correr esto"; exit 1; }
+          [ -n "$KEY_ID" ] || { echo "::error::Falta el secret ASC_KEY_ID"; exit 1; }
+          echo "$KEY_P8_BASE64" | tr -d ' \r\n' | base64 --decode > AuthKey.p8
+          grep -q "BEGIN PRIVATE KEY" AuthKey.p8 || { echo "::error::ASC_KEY_P8_BASE64 no decodifica a un .p8"; exit 1; }
+          python3 -m pip install --quiet pyjwt cryptography
+
+          # La llave privada y su solicitud de certificado (CSR).
+          openssl req -new -newkey rsa:2048 -nodes \
+            -keyout signing.key -out signing.csr \
+            -subj "/CN=Wizard Cat CI/C=CL" 2>/dev/null
+
+          # Alta del certificado en Apple con la misma API key que usa TestFlight.
+          python3 - <<'PY'
+          import base64
+          import json
+          import os
+          import pathlib
+          import time
+          import urllib.error
+          import urllib.request
+
+          import jwt
+
+          token = jwt.encode(
+              {
+                  "iss": os.environ["ISSUER_ID"],
+                  "iat": int(time.time()),
+                  "exp": int(time.time()) + 900,
+                  "aud": "appstoreconnect-v1",
+              },
+              pathlib.Path("AuthKey.p8").read_text(),
+              algorithm="ES256",
+              headers={"kid": os.environ["KEY_ID"]},
+          )
+          body = json.dumps({
+              "data": {
+                  "type": "certificates",
+                  "attributes": {
+                      "certificateType": "DEVELOPMENT",
+                      "csrContent": pathlib.Path("signing.csr").read_text(),
+                  },
+              }
+          }).encode()
+          request = urllib.request.Request(
+              "https://api.appstoreconnect.apple.com/v1/certificates",
+              data=body,
+              method="POST",
+              headers={
+                  "Authorization": f"Bearer {token}",
+                  "Content-Type": "application/json",
+              },
+          )
+          try:
+              with urllib.request.urlopen(request) as response:
+                  payload = json.load(response)
+          except urllib.error.HTTPError as error:
+              detail = error.read().decode()[:500]
+              print(f"::error::Apple respondió {error.code}: {detail}")
+              if error.code == 409 and "already" in detail.lower():
+                  print("::error::La cuenta puede estar llena de certificados: borra los viejos en developer.apple.com y reintenta")
+              raise SystemExit(1)
+          attributes = payload["data"]["attributes"]
+          pathlib.Path("signing.cer").write_bytes(
+              base64.b64decode(attributes["certificateContent"])
+          )
+          print("Certificado creado:", attributes.get("name"), "· id", payload["data"]["id"])
+          PY
+
+          # Certificado + llave → .p12 cifrado con la contraseña del secret.
+          openssl x509 -inform DER -in signing.cer -out signing.pem
+          openssl pkcs12 -export -inkey signing.key -in signing.pem \
+            -name "Wizard Cat CI" -out signing.p12 -passout env:P12_PASSWORD
+          base64 -w0 signing.p12 > BUILD_CERT_P12_BASE64.txt
+          rm -f AuthKey.p8 signing.key signing.p12
+          echo "Listo: descarga el artifact 'certificado-p12' y pega el contenido del .txt en el secret BUILD_CERT_P12_BASE64"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: certificado-p12
+          path: BUILD_CERT_P12_BASE64.txt
+          retention-days: 3
