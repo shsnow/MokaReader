@@ -13,6 +13,7 @@ El código propio de Wizard Cat Reader (`iosApp/Sources/`, `iosApp/Packages/Wiza
 | Cabeceras JNI (`jni.h`, `jni_md.h`) | OpenJDK / Oracle | GPL-2.0 + Classpath Exception | dentro de WizardJVMRunner |
 | OpenJDK Mobile (Zero) | [openjdk/mobile](https://github.com/openjdk/mobile) | GPL-2.0 + Classpath Exception | se compila en CI |
 | Suwayomi-Server (AndroidCompat) | [Suwayomi](https://github.com/Suwayomi/Suwayomi-Server) | MPL-2.0 | se compila en CI |
+| ZIPFoundation (lectura de CBZ) | [weichsel/ZIPFoundation](https://github.com/weichsel/ZIPFoundation) | MIT | dependencia SPM |
 
 WizardJVMRunner reemplaza al antiguo paquete GPL-3.0 TachiJVMRunner: fue escrito desde cero
 contra la especificación JNI de Oracle y la interfaz Apache-2.0 de `app.tachiaz.compat.NativeBridge`

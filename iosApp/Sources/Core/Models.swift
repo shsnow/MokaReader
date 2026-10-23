@@ -15,6 +15,9 @@ struct MangaItem: Codable, Hashable, Identifiable {
 
     var id: String { "\(sourceId)|\(url)" }
 
+    /// Imported on the device (CBZ archives): read from disk, never from the engine.
+    var isLocal: Bool { sourceId == LocalSource.sourceId }
+
     var genres: [String] {
         (genre ?? "")
             .split(separator: ",")

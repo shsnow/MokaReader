@@ -50,6 +50,8 @@ final class LibraryUpdater: ObservableObject {
         for entry in entries {
             if Task.isCancelled || cancelRequested { break }
             defer { completed += 1 }
+            // Imported series have no site to check.
+            if entry.manga.isLocal { continue }
             guard let installed = extensions.extensionFor(sourceId: entry.manga.sourceId) else {
                 continue
             }

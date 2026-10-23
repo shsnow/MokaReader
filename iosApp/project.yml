@@ -16,6 +16,10 @@ packages:
   # (Apache-2.0) against the JNI spec and the Apache extension-host protocol.
   WizardJVMRunner:
     path: Packages/WizardJVMRunner
+  # Reads imported CBZ/ZIP comics (MIT).
+  ZIPFoundation:
+    url: https://github.com/weichsel/ZIPFoundation.git
+    exactVersion: 0.9.19
 
 targets:
   MokaReader:
@@ -38,12 +42,16 @@ targets:
         buildPhase: resources
       - path: Resources/JVM/tachiaz-mobile-shims.jar
         buildPhase: resources
+      # The guide comic seeded into the library on first launch.
+      - path: Resources/SampleComics/guia-wizard-cat.cbz
+        buildPhase: resources
     dependencies:
       # Static library: linked, never embedded.
       - framework: Vendor/jvm/OpenJDK.xcframework
         embed: false
         link: true
       - package: WizardJVMRunner
+      - package: ZIPFoundation
     info:
       path: Sources/Info.plist
       properties:
@@ -69,6 +77,16 @@ targets:
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
         NSLocalNetworkUsageDescription: Wizard Cat Reader se conecta a servidores de manga propios, como Komga, en tu red local.
+        # So the Files picker offers .cbz archives when importing comics.
+        UTImportedTypeDeclarations:
+          - UTTypeIdentifier: cl.jonas.wizardcat.cbz
+            UTTypeDescription: Comic Book Archive
+            UTTypeConformsTo:
+              - public.zip-archive
+              - public.data
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - cbz
     settings:
       base:
         # The App Store Connect record "MokaReader" was created with this identifier.

@@ -611,6 +611,7 @@ struct LicensesView: View {
     • WizardJVMRunner — puente Swift/JNI propio de Wizard Cat Reader, Apache License 2.0 \
     (incluye las cabeceras JNI de OpenJDK, GPL v2 con Classpath Exception).
     • Formato de extensiones y backups de Mihon / Tachiyomi — Apache License 2.0.
+    • ZIPFoundation — MIT License, © Thomas Zoechling. Lee los cómics CBZ importados.
 
     Gracias a los equipos de Mihon, Tachiyomi, Suwayomi, Aidoku, TachiyomiAZ y OpenJDK.
     """

@@ -52,6 +52,7 @@ final class TabShortcuts: ObservableObject {
 
 struct RootView: View {
     @EnvironmentObject private var extensions: ExtensionManager
+    @EnvironmentObject private var library: LibraryStore
     /// The app opens where it was left.
     @AppStorage("lastTab") private var selectedTab = 0
 
@@ -93,12 +94,19 @@ struct RootView: View {
                 .tag(1)
             NavigationStack { ExtensionsView() }
                 .tabItem { Label("Extensiones", systemImage: "puzzlepiece.extension") }
+                .badge(extensions.updateCount)
                 .tag(3)
             NavigationStack { SettingsView() }
                 .tabItem { Label("Ajustes", systemImage: "gearshape") }
                 .tag(4)
         }
-        .onAppear { updateOnLaunchIfDue() }
+        .onAppear {
+            // The bundled guide comic, so a fresh install has something to read.
+            LocalStore.shared.seedSampleIfNeeded(library: library)
+            updateOnLaunchIfDue()
+            // A fresh catalog keeps the Extensiones update badge honest.
+            Task { await extensions.refreshCatalogIfStale() }
+        }
         .alert(
             "Algo salió mal",
             isPresented: Binding(

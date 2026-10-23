@@ -383,6 +383,18 @@ struct ReaderView: View {
             )
             return
         }
+        if context.manga.isLocal {
+            do {
+                let loaded = try await Task.detached { try LocalStore.pages(for: target) }.value
+                guard mode == .webtoon, segments.last?.chapterIndex == last.chapterIndex else { return }
+                segments.append(
+                    WebtoonSegment(chapterIndex: nextIndex, chapterURL: target.url, pages: loaded, isOffline: true)
+                )
+            } catch {
+                nextError = error.localizedDescription
+            }
+            return
+        }
         do {
             let loaded = try await JVMEngine.shared.pages(
                 of: target, manga: context.manga, installed: context.installed
@@ -772,6 +784,21 @@ struct ReaderView: View {
             segments = [
                 WebtoonSegment(chapterIndex: chapterIndex, chapterURL: target.url, pages: local, isOffline: true)
             ]
+            return
+        }
+        // Imported chapters: list and extract from the archive, never the engine.
+        if context.manga.isLocal {
+            isOffline = true
+            do {
+                let loaded = try await Task.detached { try LocalStore.pages(for: target) }.value
+                guard target == chapter else { return }
+                pages = loaded
+                segments = [
+                    WebtoonSegment(chapterIndex: chapterIndex, chapterURL: target.url, pages: loaded, isOffline: true)
+                ]
+            } catch {
+                self.error = error.localizedDescription
+            }
             return
         }
         isOffline = false

@@ -92,6 +92,7 @@ final class LibraryStore: ObservableObject {
     }
 
     func remove(_ manga: MangaItem) {
+        if manga.isLocal { LocalStore.deleteSeriesFiles(for: manga) }
         entries[manga.id] = nil
         saveLibrary()
     }
@@ -495,7 +496,12 @@ final class LibraryStore: ObservableObject {
     }
 
     func removeEntries(ids: [String]) {
-        for id in ids { entries[id] = nil }
+        for id in ids {
+            if let manga = entries[id]?.manga, manga.isLocal {
+                LocalStore.deleteSeriesFiles(for: manga)
+            }
+            entries[id] = nil
+        }
         saveLibrary()
     }
 

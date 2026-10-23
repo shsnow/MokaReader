@@ -13,8 +13,8 @@ Material listo para copiar/pegar en App Store Connect. Lo que va entre ⟨ ⟩ s
 | **Categoría principal** | Libros (Books) |
 | **Categoría secundaria** | Entretenimiento |
 | **Precio** | Gratis |
-| **URL de soporte** | https://shsnow.github.io/MokaReader/ |
-| **URL de privacidad** | https://shsnow.github.io/MokaReader/privacy.html |
+| **URL de soporte** | https://shsnow.github.io/Wizard-Cat-Reader/ |
+| **URL de privacidad** | https://shsnow.github.io/Wizard-Cat-Reader/privacy.html |
 
 > Las URLs funcionan tras activar GitHub Pages (ver al final). Si algún día renombras el repo,
 > cambian solas de nombre — actualízalas en ASC.
@@ -107,22 +107,22 @@ notas al revisor, pero "acceso web sin restricciones" manda en el cuestionario.)
 > Adult-flagged extensions and series are permanently blocked at multiple levels and this
 > cannot be disabled by the user.
 >
-> To review the app's functionality, please use our demo server:
-> ⟨URL del servidor Komga de demo⟩ — repository URL to paste in Extensions tab:
-> ⟨URL del index del repo de demo⟩. It serves only public-domain comics.
+> To review the app's functionality out of the box: the app ships with a built-in sample
+> comic ("Guía de Wizard Cat", our own illustrated guide) that appears in the Library on
+> first launch — open it to exercise the full reading experience (reading modes, zoom,
+> progress tracking). You can also import your own CBZ/ZIP comic archives from the Files
+> app using the + button in the Library tab; imported comics work fully offline.
 >
 > The app is free, has no ads, no purchases, no accounts, and collects no data.
 
-### ⚠️ El riesgo real de la revisión: la demo
+### La demo: resuelta con contenido local ✅
 
-La app llega "vacía" al revisor (sin fuentes). Si el revisor no puede ver contenido,
-puede rechazar por la regla 4.2 (funcionalidad mínima). Dos salidas:
-
-1. **(Recomendada)** Montar un servidor Komga de demo con obras de dominio público
-   (hay manga/cómics en dominio público en archive.org) y la extensión Komga de un
-   repositorio que tú controles. Se lo pasamos al revisor en las notas.
-2. Agregar soporte nativo de archivos locales CBZ (futura feature) para que la app
-   funcione sin fuentes — más trabajo, pero elimina el problema de raíz.
+La app ya NO llega vacía al revisor: al primer arranque la Biblioteca trae la
+"Guía de Wizard Cat" (cómic original de 8 páginas, hecho por nosotros, sin copyright de
+terceros) y cualquier CBZ/ZIP se importa desde Archivos con el botón + de la Biblioteca.
+El revisor puede ejercitar lector, progreso, modos y biblioteca sin montar nada.
+No se necesita servidor Komga de demo (sigue siendo una opción si algún revisor pide
+ver el flujo de fuentes, pero ya no es el plan principal).
 
 ## Capturas (desde tu iPhone, modo oscuro, series inofensivas en pantalla)
 
@@ -137,10 +137,10 @@ Se necesitan de 6.9" (iPhone Pro Max/Plus) o se reutilizan las del tamaño del 1
 
 ## Pasos de publicación (en orden)
 
-1. GitHub → repo MokaReader → Settings → Pages → Source: "Deploy from a branch",
+1. GitHub → repo Wizard-Cat-Reader → Settings → Pages → Source: "Deploy from a branch",
    Branch: `main`, carpeta `/docs` → Save. En ~2 min las URLs de arriba quedan vivas.
 2. ASC → App Information → Name: "Wizard Cat Reader" (+ subtítulo).
 3. ASC → App Privacy → "Data Not Collected".
 4. Preparar la versión: descripción, keywords, URLs, capturas, clasificación.
-5. Review Notes con el servidor de demo.
+5. Review Notes (arriba): el cómic guía precargado + importación CBZ son la demo.
 6. Enviar a revisión 🤞

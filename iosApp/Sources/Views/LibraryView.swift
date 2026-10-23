@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct LibraryView: View {
     @EnvironmentObject private var library: LibraryStore
@@ -12,6 +13,14 @@ struct LibraryView: View {
     @State private var addingCategory = false
     @State private var newCategoryName = ""
     @State private var confirmingRemoval = false
+    @State private var importingComics = false
+    @State private var pendingImports: [URL] = []
+    @State private var namingImport = false
+    @State private var importTitle = ""
+    @State private var importError: String?
+
+    private static let comicTypes: [UTType] =
+        [UTType(filenameExtension: "cbz"), .zip].compactMap { $0 }
 
     private var items: [LibraryEntry] {
         var all = library.sortedEntries.filter { ContentFilter.isAllowed($0.manga) }
@@ -118,6 +127,12 @@ struct LibraryView: View {
                         }
                         .accessibilityLabel("Seleccionar series")
                     }
+                    Button {
+                        importingComics = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel("Importar cómics (CBZ)")
                     Menu {
                         Picker("Ordenar por", selection: $settings.librarySort) {
                             ForEach(LibrarySort.allCases) { Text($0.title).tag($0) }
@@ -166,6 +181,61 @@ struct LibraryView: View {
             Button("Quitar", role: .destructive) {
                 library.removeEntries(ids: Array(selection))
                 exitSelection()
+            }
+        } message: {
+            if selection.contains(where: { library.entries[$0]?.manga.isLocal == true }) {
+                Text("Las series importadas se quitan junto con sus archivos CBZ. Esto no se puede deshacer.")
+            }
+        }
+        .fileImporter(
+            isPresented: $importingComics,
+            allowedContentTypes: Self.comicTypes,
+            allowsMultipleSelection: true
+        ) { result in
+            guard let urls = try? result.get(), !urls.isEmpty else { return }
+            pendingImports = urls
+            importTitle = LocalStore.suggestedTitle(for: urls[0])
+            namingImport = true
+        }
+        .alert("Importar como serie", isPresented: $namingImport) {
+            TextField("Título de la serie", text: $importTitle)
+            Button("Cancelar", role: .cancel) { pendingImports = [] }
+            Button("Importar") { importPendingComics() }
+        } message: {
+            Text(pendingImports.count == 1
+                ? "El CBZ se agrega como capítulo de esta serie."
+                : "Los \(pendingImports.count) CBZ se agregan como capítulos de esta serie.")
+        }
+        .alert(
+            "No se pudo importar",
+            isPresented: Binding(
+                get: { importError != nil },
+                set: { if !$0 { importError = nil } }
+            ),
+            actions: { Button("OK", role: .cancel) {} },
+            message: { Text(importError ?? "") }
+        )
+    }
+
+    /// Copies the picked archives into the local series and puts it in the library.
+    /// The copies, ZIP validation and cover extraction are blocking I/O: off the main actor.
+    private func importPendingComics() {
+        let urls = pendingImports
+        let title = importTitle
+        pendingImports = []
+        Task {
+            do {
+                let (manga, chapters) = try await Task.detached {
+                    let manga = try LocalStore.importArchives(urls, seriesTitle: title)
+                    return (manga, LocalStore.chapters(for: manga))
+                }.value
+                if library.contains(manga) {
+                    library.refresh(manga, chapters: chapters)
+                } else {
+                    library.add(manga, chapters: chapters)
+                }
+            } catch {
+                importError = error.localizedDescription
             }
         }
     }

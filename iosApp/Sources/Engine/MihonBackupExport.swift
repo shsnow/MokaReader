@@ -65,6 +65,8 @@ enum MihonBackupExport {
 
         for entry in entries {
             let manga = entry.manga
+            // Imported series live as files on this device; Mihon could not restore them.
+            if manga.isLocal { continue }
             let progress = library.progress[manga.id]
             sourceIds.insert(manga.sourceId)
 

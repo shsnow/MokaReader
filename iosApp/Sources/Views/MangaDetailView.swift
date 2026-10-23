@@ -139,7 +139,9 @@ struct MangaDetailView: View {
                     Image(systemName: modeBinding.wrappedValue.symbol)
                 }
                 .accessibilityLabel("Modo de lectura")
-                downloadMenu
+                if !manga.isLocal {
+                    downloadMenu
+                }
                 if library.contains(manga) {
                     Button {
                         noteDraft = library.note(for: manga)
@@ -155,7 +157,7 @@ struct MangaDetailView: View {
                     Image(systemName: library.contains(manga) ? "bookmark.fill" : "bookmark")
                 }
                 .accessibilityLabel(library.contains(manga) ? "Quitar de la biblioteca" : "Guardar en la biblioteca")
-                if siteURL != nil || library.contains(manga) || installed != nil {
+                if siteURL != nil || library.contains(manga) || (installed != nil && !manga.isLocal) {
                     Menu {
                         if scanlators.count >= 2 {
                             Picker("Scanlator preferido", selection: scanlatorBinding) {
@@ -185,7 +187,7 @@ struct MangaDetailView: View {
                                 Label("Migrar de fuente", systemImage: "arrow.left.arrow.right")
                             }
                         }
-                        if installed != nil {
+                        if installed != nil && !manga.isLocal {
                             Button {
                                 showingWebLogin = true
                             } label: {
@@ -288,7 +290,9 @@ struct MangaDetailView: View {
         ) {
             Button("Quitar", role: .destructive) { library.remove(manga) }
         } message: {
-            Text("Se pierden la nota y las categorías de esta serie.")
+            Text(manga.isLocal
+                ? "Se borran también los archivos CBZ importados de esta serie. Esto no se puede deshacer."
+                : "Se pierden la nota y las categorías de esta serie.")
         }
         .alert(
             "No se puede abrir",
@@ -343,7 +347,7 @@ struct MangaDetailView: View {
         Button("Marcar no leídos este y anteriores") {
             library.setRead(false, chapterURLs: through.map(\.url), in: manga)
         }
-        if !pending.isEmpty && installed != nil {
+        if !pending.isEmpty && installed != nil && !manga.isLocal {
             Button("Descargar este y anteriores (\(pending.count))") {
                 download(pending)
             }
@@ -614,7 +618,7 @@ struct MangaDetailView: View {
                         .font(.caption)
                         .foregroundStyle(.orange)
                 }
-                if state == .none, !selectingChapters, installed != nil {
+                if state == .none, !selectingChapters, installed != nil, !manga.isLocal {
                     Image(systemName: "arrow.down.circle")
                         .font(.title3)
                         .foregroundStyle(.secondary)
@@ -666,8 +670,10 @@ struct MangaDetailView: View {
 
     private var chapterSelectionBar: some View {
         HStack(spacing: 4) {
-            selectionBarButton("Bajar", symbol: "arrow.down.circle") {
-                download(selectedItems.filter { !downloads.isDownloaded(manga: manga, chapter: $0) })
+            if !manga.isLocal {
+                selectionBarButton("Bajar", symbol: "arrow.down.circle") {
+                    download(selectedItems.filter { !downloads.isDownloaded(manga: manga, chapter: $0) })
+                }
             }
             selectionBarButton("Favorito", symbol: "star") {
                 library.toggleBookmark(chapterURLs: selectedItems.map(\.url), in: manga)
@@ -678,9 +684,11 @@ struct MangaDetailView: View {
             selectionBarButton("No leído", symbol: "circle") {
                 library.setRead(false, chapterURLs: selectedItems.map(\.url), in: manga)
             }
-            selectionBarButton("Borrar", symbol: "trash", role: .destructive) {
-                for chapter in selectedItems {
-                    downloads.delete(manga: manga, chapter: chapter)
+            if !manga.isLocal {
+                selectionBarButton("Borrar", symbol: "trash", role: .destructive) {
+                    for chapter in selectedItems {
+                        downloads.delete(manga: manga, chapter: chapter)
+                    }
                 }
             }
         }
@@ -745,9 +753,10 @@ struct MangaDetailView: View {
 
     private func toggleLibrary() {
         if library.contains(manga) {
-            // Removing silently would also discard the note and categories.
+            // Removing silently would also discard the note and categories — and for an
+            // imported series, its files: that always deserves a confirmation.
             let entry = library.entry(for: manga)
-            if entry?.note != nil || !(entry?.categories ?? []).isEmpty {
+            if manga.isLocal || entry?.note != nil || !(entry?.categories ?? []).isEmpty {
                 confirmingRemoval = true
             } else {
                 library.remove(manga)
@@ -760,6 +769,7 @@ struct MangaDetailView: View {
 
     private func download(_ items: [ChapterItem]) {
         guard let installed, !items.isEmpty else { return }
+        guard !manga.isLocal else { return }
         downloads.enqueue(items, manga: manga, installed: installed)
     }
 
@@ -774,6 +784,15 @@ struct MangaDetailView: View {
     }
 
     private func refresh() async {
+        if manga.isLocal {
+            let loaded = LocalStore.chapters(for: manga)
+            chapters = loaded
+            error = loaded.isEmpty
+                ? "Esta serie ya no tiene archivos. Importa sus CBZ otra vez desde la Biblioteca."
+                : nil
+            if library.contains(manga) { library.refresh(manga, chapters: loaded) }
+            return
+        }
         guard let installed else {
             error = "Instala la extensión de esta fuente para ver sus capítulos."
             return

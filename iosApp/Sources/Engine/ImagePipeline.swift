@@ -49,6 +49,16 @@ actor ImagePipeline {
         let key = "cover|\(address)" as NSString
         if let cached = memory.object(forKey: key) { return cached }
 
+        // Imported series: the cover is a file next to the archives, never a download.
+        if manga.isLocal {
+            guard
+                let data = LocalStore.coverData(for: manga),
+                let image = Self.decode(data, maxWidth: maxWidth)
+            else { throw URLError(.fileDoesNotExist) }
+            store(image, for: key)
+            return image
+        }
+
         let file = coverDirectory.appendingPathComponent(Self.hash(address))
         if let data = try? Data(contentsOf: file), let image = Self.decode(data, maxWidth: maxWidth) {
             store(image, for: key)

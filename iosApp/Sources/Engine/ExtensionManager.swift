@@ -39,7 +39,10 @@ final class ExtensionManager: ObservableObject {
     }
 
     func extensionFor(sourceId: Int64) -> InstalledExtension? {
-        installed.first { $0.sources.contains { $0.id == sourceId } }
+        // Imported series get a stand-in, so the reader and library flows work;
+        // local reads never reach the engine.
+        if sourceId == LocalSource.sourceId { return LocalSource.installedExtension }
+        return installed.first { $0.sources.contains { $0.id == sourceId } }
     }
 
     func source(id: Int64) -> SourceInfo? {
