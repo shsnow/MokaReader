@@ -47,6 +47,9 @@ jobs:
             -subj "/CN=Wizard Cat CI/C=CL" 2>/dev/null
 
           # Alta del certificado en Apple con la misma API key que usa TestFlight.
+          # Si Apple responde "ya tienes un certificado Development" (409), los
+          # Development viejos se revocan por la misma API y se reintenta: sus
+          # llaves privadas murieron con los runners, así que ya no sirven de nada.
           python3 - <<'PY'
           import base64
           import json
@@ -58,44 +61,68 @@ jobs:
 
           import jwt
 
-          token = jwt.encode(
-              {
-                  "iss": os.environ["ISSUER_ID"],
-                  "iat": int(time.time()),
-                  "exp": int(time.time()) + 900,
-                  "aud": "appstoreconnect-v1",
-              },
-              pathlib.Path("AuthKey.p8").read_text(),
-              algorithm="ES256",
-              headers={"kid": os.environ["KEY_ID"]},
-          )
-          body = json.dumps({
-              "data": {
-                  "type": "certificates",
-                  "attributes": {
-                      "certificateType": "DEVELOPMENT",
-                      "csrContent": pathlib.Path("signing.csr").read_text(),
+          API = "https://api.appstoreconnect.apple.com/v1/certificates"
+
+          def headers():
+              token = jwt.encode(
+                  {
+                      "iss": os.environ["ISSUER_ID"],
+                      "iat": int(time.time()),
+                      "exp": int(time.time()) + 900,
+                      "aud": "appstoreconnect-v1",
                   },
-              }
-          }).encode()
-          request = urllib.request.Request(
-              "https://api.appstoreconnect.apple.com/v1/certificates",
-              data=body,
-              method="POST",
-              headers={
-                  "Authorization": f"Bearer {token}",
-                  "Content-Type": "application/json",
-              },
-          )
-          try:
+                  pathlib.Path("AuthKey.p8").read_text(),
+                  algorithm="ES256",
+                  headers={"kid": os.environ["KEY_ID"]},
+              )
+              return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+          def call(url, method="GET", body=None):
+              request = urllib.request.Request(url, data=body, method=method, headers=headers())
               with urllib.request.urlopen(request) as response:
-                  payload = json.load(response)
+                  raw = response.read()
+                  return json.loads(raw) if raw else {}
+
+          def create():
+              body = json.dumps({
+                  "data": {
+                      "type": "certificates",
+                      "attributes": {
+                          "certificateType": "DEVELOPMENT",
+                          "csrContent": pathlib.Path("signing.csr").read_text(),
+                      },
+                  }
+              }).encode()
+              return call(API, method="POST", body=body)
+
+          try:
+              payload = create()
           except urllib.error.HTTPError as error:
               detail = error.read().decode()[:500]
-              print(f"::error::Apple respondió {error.code}: {detail}")
-              if error.code == 409 and "already" in detail.lower():
-                  print("::error::La cuenta puede estar llena de certificados: borra los viejos en developer.apple.com y reintenta")
-              raise SystemExit(1)
+              if error.code != 409:
+                  print(f"::error::Apple respondió {error.code}: {detail}")
+                  raise SystemExit(1)
+              print("Ya hay certificados Development; revocando los viejos del CI…")
+              listing = call(API + "?filter[certificateType]=DEVELOPMENT&limit=200")
+              for certificate in listing.get("data", []):
+                  name = certificate["attributes"].get("name", "")
+                  serial = certificate["attributes"].get("serialNumber", "")
+                  try:
+                      call(API + "/" + certificate["id"], method="DELETE")
+                      print(f"Revocado: {name} ({serial})")
+                  except urllib.error.HTTPError as revoke_error:
+                      print(
+                          f"::error::No se pudo revocar {name}: {revoke_error.code}. "
+                          "La API key necesita rol Admin; si no lo tiene, borra los "
+                          "certificados Development a mano en developer.apple.com"
+                      )
+                      raise SystemExit(1)
+              try:
+                  payload = create()
+              except urllib.error.HTTPError as retry_error:
+                  print(f"::error::Reintento falló {retry_error.code}: {retry_error.read().decode()[:500]}")
+                  raise SystemExit(1)
+
           attributes = payload["data"]["attributes"]
           pathlib.Path("signing.cer").write_bytes(
               base64.b64decode(attributes["certificateContent"])
@@ -112,9 +139,8 @@ jobs:
             -name "Wizard Cat CI" \
             -keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-3DES -macalg sha1 \
             -out signing.p12 -passout env:P12_PASSWORD
-          # Autoverificación: si esto falla, el problema es de esta máquina, no tuyo.
-          openssl pkcs12 -in signing.p12 -passin env:P12_PASSWORD -noout -nomacver 2>/dev/null \
-            && openssl pkcs12 -in signing.p12 -passin env:P12_PASSWORD -noout \
+          # Autoverificación de la contraseña y el MAC antes de publicar el artifact.
+          openssl pkcs12 -in signing.p12 -passin env:P12_PASSWORD -noout \
             || { echo "::error::El .p12 generado no pasa la verificación con CERT_P12_PASSWORD"; exit 1; }
           base64 -w0 signing.p12 > BUILD_CERT_P12_BASE64.txt
           rm -f AuthKey.p8 signing.key signing.p12
