@@ -1,9 +1,11 @@
 import SwiftUI
 
-/// A manga cover loaded through the source's own headers.
+/// A manga cover: the user's custom one if set, otherwise loaded through the source's
+/// own headers.
 struct CoverImage: View {
     let manga: MangaItem
     @EnvironmentObject private var extensions: ExtensionManager
+    @EnvironmentObject private var library: LibraryStore
     @State private var image: UIImage?
     @State private var failed = false
 
@@ -24,9 +26,15 @@ struct CoverImage: View {
                 }
             }
             .clipped()
-            .task(id: manga.thumbnailURL) {
+            .task(id: "\(manga.id)|\(manga.thumbnailURL ?? "")#\(library.coverVersion)") {
                 image = nil
                 failed = false
+                if let custom = library.customCoverURL(for: manga),
+                   let data = try? Data(contentsOf: custom),
+                   let decoded = ImagePipeline.decode(data, maxWidth: 360) {
+                    image = decoded
+                    return
+                }
                 let installed = extensions.extensionFor(sourceId: manga.sourceId)
                 do {
                     image = try await ImagePipeline.shared.cover(

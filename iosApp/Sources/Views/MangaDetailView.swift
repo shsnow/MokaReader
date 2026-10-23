@@ -1,3 +1,4 @@
+import PhotosUI
 import SwiftUI
 
 struct MangaDetailView: View {
@@ -23,6 +24,8 @@ struct MangaDetailView: View {
     @State private var migrating = false
     /// Long-pressed chapter while selecting: anchors the "este y anteriores" range actions.
     @State private var rangeAnchor: ChapterItem?
+    @State private var pickingCover = false
+    @State private var coverItem: PhotosPickerItem?
     /// Shown as an alert; `error` only renders while the chapter list is empty.
     @State private var actionError: String?
     @State private var confirmingDeleteDownloads = false
@@ -36,11 +39,27 @@ struct MangaDetailView: View {
         extensions.extensionFor(sourceId: manga.sourceId)
     }
 
+    /// The chapter list after the scanlator preference drops duplicate releases.
+    private var effectiveChapters: [ChapterItem] {
+        LibraryStore.applyScanlatorPreference(
+            chapters, preferred: library.preferredScanlator(for: manga)
+        )
+    }
+
+    /// Groups that released chapters for this series, for the preference picker.
+    private var scanlators: [String] {
+        var seen = Set<String>()
+        return chapters
+            .compactMap(\.scanlator)
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
+            .sorted()
+    }
+
     /// Sources list chapters newest first, the same convention as Mihon.
-    private var ascending: [ChapterItem] { Array(chapters.reversed()) }
+    private var ascending: [ChapterItem] { Array(effectiveChapters.reversed()) }
 
     private var displayed: [ChapterItem] {
-        let ordered = newestFirst ? chapters : ascending
+        let ordered = newestFirst ? effectiveChapters : ascending
         let query = chapterQuery.trimmingCharacters(in: .whitespaces)
         guard !query.isEmpty else { return ordered }
         return ordered.filter {
@@ -137,7 +156,28 @@ struct MangaDetailView: View {
                 .accessibilityLabel(library.contains(manga) ? "Quitar de la biblioteca" : "Guardar en la biblioteca")
                 if siteURL != nil || library.contains(manga) {
                     Menu {
+                        if scanlators.count >= 2 {
+                            Picker("Scanlator preferido", selection: scanlatorBinding) {
+                                Text("Todos los grupos").tag(String?.none)
+                                ForEach(scanlators, id: \.self) { group in
+                                    Text(group).tag(String?.some(group))
+                                }
+                            }
+                        }
                         if library.contains(manga) {
+                            Button {
+                                pickingCover = true
+                            } label: {
+                                Label("Cambiar portada", systemImage: "photo")
+                            }
+                            if library.customCoverURL(for: manga) != nil {
+                                Button(role: .destructive) {
+                                    library.removeCustomCover(for: manga)
+                                } label: {
+                                    Label("Quitar portada personalizada", systemImage: "photo.on.rectangle.angled")
+                                }
+                            }
+                            Divider()
                             Button {
                                 migrating = true
                             } label: {
@@ -208,26 +248,7 @@ struct MangaDetailView: View {
             titleVisibility: .visible,
             presenting: rangeAnchor
         ) { anchor in
-            let through = chaptersThrough(anchor)
-            let pending = through.filter { !downloads.isDownloaded(manga: manga, chapter: $0) }
-            Button("Marcar leídos este y anteriores (\(through.count))") {
-                library.setRead(true, chapterURLs: through.map(\.url), in: manga)
-            }
-            Button("Marcar no leídos este y anteriores") {
-                library.setRead(false, chapterURLs: through.map(\.url), in: manga)
-            }
-            if !pending.isEmpty && installed != nil {
-                Button("Descargar este y anteriores (\(pending.count))") {
-                    download(pending)
-                }
-            }
-            Button("Seleccionar este y anteriores") {
-                selectedChapters.formUnion(through.map(\.url))
-            }
-            Button("Seleccionar este y siguientes") {
-                selectedChapters.formUnion(chaptersFrom(anchor).map(\.url))
-            }
-            Button("Cancelar", role: .cancel) {}
+            rangeActions(for: anchor)
         } message: { anchor in
             Text(anchor.name)
         }
@@ -258,6 +279,62 @@ struct MangaDetailView: View {
             actions: { Button("OK", role: .cancel) {} },
             message: { Text(actionError ?? "") }
         )
+        .photosPicker(isPresented: $pickingCover, selection: $coverItem, matching: .images)
+        .onChange(of: coverItem) { item in
+            guard let item else { return }
+            Task {
+                defer { coverItem = nil }
+                guard let data = try? await item.loadTransferable(type: Data.self) else { return }
+                // A photo can be 48 MP; decode and resize off the main actor.
+                let jpeg = await Task.detached(priority: .userInitiated) { () -> Data? in
+                    guard let picked = UIImage(data: data) else { return nil }
+                    // A cover never needs more than ~900 px of width.
+                    let scale = min(1, 900 / max(picked.size.width, 1))
+                    let size = CGSize(
+                        width: picked.size.width * scale,
+                        height: picked.size.height * scale
+                    )
+                    let renderer = UIGraphicsImageRenderer(size: size)
+                    let resized = renderer.image { _ in
+                        picked.draw(in: CGRect(origin: .zero, size: size))
+                    }
+                    return resized.jpegData(compressionQuality: 0.85)
+                }.value
+                guard let jpeg else { return }
+                library.setCustomCover(jpeg, for: manga)
+            }
+        }
+    }
+
+    private var scanlatorBinding: Binding<String?> {
+        Binding(
+            get: { library.preferredScanlator(for: manga) },
+            set: { library.setPreferredScanlator($0, for: manga) }
+        )
+    }
+
+    @ViewBuilder
+    private func rangeActions(for anchor: ChapterItem) -> some View {
+        let through = chaptersThrough(anchor)
+        let pending = through.filter { !downloads.isDownloaded(manga: manga, chapter: $0) }
+        Button("Marcar leídos este y anteriores (\(through.count))") {
+            library.setRead(true, chapterURLs: through.map(\.url), in: manga)
+        }
+        Button("Marcar no leídos este y anteriores") {
+            library.setRead(false, chapterURLs: through.map(\.url), in: manga)
+        }
+        if !pending.isEmpty && installed != nil {
+            Button("Descargar este y anteriores (\(pending.count))") {
+                download(pending)
+            }
+        }
+        Button("Seleccionar este y anteriores") {
+            selectedChapters.formUnion(through.map(\.url))
+        }
+        Button("Seleccionar este y siguientes") {
+            selectedChapters.formUnion(chaptersFrom(anchor).map(\.url))
+        }
+        Button("Cancelar", role: .cancel) {}
     }
 
     /// The anchor and every older chapter, oldest first.
@@ -381,10 +458,10 @@ struct MangaDetailView: View {
             if selectingChapters {
                 Text("\(selectedChapters.count) seleccionados")
                 Spacer()
-                Button(selectedChapters.count == chapters.count ? "Ninguno" : "Todos") {
-                    selectedChapters = selectedChapters.count == chapters.count
+                Button(selectedChapters.count == effectiveChapters.count ? "Ninguno" : "Todos") {
+                    selectedChapters = selectedChapters.count == effectiveChapters.count
                         ? []
-                        : Set(chapters.map(\.url))
+                        : Set(effectiveChapters.map(\.url))
                 }
                 Button("Listo") {
                     selectingChapters = false
@@ -392,7 +469,7 @@ struct MangaDetailView: View {
                 }
                 .fontWeight(.semibold)
             } else {
-                Text(chapters.count == 1 ? "1 capítulo" : "\(chapters.count) capítulos")
+                Text(effectiveChapters.count == 1 ? "1 capítulo" : "\(effectiveChapters.count) capítulos")
                 Spacer()
                 Button {
                     newestFirst.toggle()

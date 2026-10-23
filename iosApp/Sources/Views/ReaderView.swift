@@ -437,40 +437,89 @@ struct ReaderView: View {
 
     // MARK: - Paged
 
+    private func layoutIsDouble(_ size: CGSize) -> Bool {
+        switch settings.doublePageMode {
+            case .off: return false
+            case .always: return true
+            case .landscape: return size.width > size.height
+        }
+    }
+
+    /// Page indices grouped per screen. In double layout the first page stands alone (it is
+    /// usually the cover), then pages pair up like an open book.
+    private func spreadGroups(double: Bool) -> [[Int]] {
+        guard double, pages.count > 1 else {
+            return pages.indices.map { [$0] }
+        }
+        var groups: [[Int]] = [[0]]
+        var index = 1
+        while index < pages.count {
+            if index + 1 < pages.count {
+                groups.append([index, index + 1])
+                index += 2
+            } else {
+                groups.append([index])
+                index += 1
+            }
+        }
+        return groups
+    }
+
+    /// TabView selects spreads, the rest of the reader thinks in pages.
+    private func spreadSelection(_ spreads: [[Int]]) -> Binding<Int> {
+        Binding(
+            get: {
+                if currentPage >= pages.count { return spreads.count }
+                return spreads.firstIndex(where: { $0.contains(currentPage) }) ?? 0
+            },
+            set: { index in
+                currentPage = index >= spreads.count
+                    ? pages.count
+                    : (spreads[index].first ?? 0)
+            }
+        )
+    }
+
     private func paged(size: CGSize) -> some View {
-        TabView(selection: $currentPage) {
-            ForEach(Array(pages.enumerated()), id: \.element.id) { offset, page in
-                ReaderPageView(
-                    page: page,
+        let double = layoutIsDouble(size)
+        let spreads = spreadGroups(double: double)
+        // In double mode each page only fills half the screen; decoding at 2x there
+        // would quadruple the composite's memory for nothing.
+        let decodeWidth = size.width * displayScale * (double ? 1 : 2)
+        return TabView(selection: spreadSelection(spreads)) {
+            ForEach(Array(spreads.enumerated()), id: \.offset) { offset, group in
+                SpreadPageView(
+                    pages: group.map { pages[$0] },
                     manga: context.manga,
                     installed: context.installed,
-                    width: size.width,
-                    decodeWidth: size.width * displayScale * 2,
-                    fitHeight: size.height,
-                    onTap: { position in handlePagedTap(position) }
+                    size: size,
+                    decodeWidth: decodeWidth,
+                    rightToLeft: mode == .rightToLeft,
+                    trimBorders: settings.trimPageBorders,
+                    onTap: { position in handlePagedTap(position, spreads: spreads) }
                 )
                 .tag(offset)
             }
             chapterEnd
                 .contentShape(Rectangle())
                 .onTapGesture { withAnimation(.easeInOut(duration: 0.2)) { showOverlay.toggle() } }
-                .tag(pages.count)
+                .tag(spreads.count)
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
         .environment(\.layoutDirection, mode == .rightToLeft ? .rightToLeft : .leftToRight)
-        .id("\(chapter.url)-\(mode.rawValue)")
+        .id("\(chapter.url)-\(mode.rawValue)-\(double)-\(settings.trimPageBorders)")
         .onChange(of: currentPage) { value in
-            prefetch(after: value, in: pages, decodeWidth: size.width * displayScale * 2)
-            if value >= pages.count - 1 && !pages.isEmpty { markRead() }
+            prefetch(after: value, in: pages, decodeWidth: decodeWidth)
+            if !pages.isEmpty, value >= pages.count || spreads.last?.contains(value) == true { markRead() }
         }
         .onAppear {
-            prefetch(after: currentPage, in: pages, decodeWidth: size.width * displayScale * 2)
+            prefetch(after: currentPage, in: pages, decodeWidth: decodeWidth)
         }
     }
 
     /// Edge taps turn pages; the middle of the screen shows or hides the controls.
     /// In right-to-left mode the left edge moves forward, like a printed manga.
-    private func handlePagedTap(_ position: CGFloat) {
+    private func handlePagedTap(_ position: CGFloat, spreads: [[Int]]) {
         guard settings.tapZonesEnabled else {
             withAnimation(.easeInOut(duration: 0.2)) { showOverlay.toggle() }
             return
@@ -486,9 +535,14 @@ struct ReaderView: View {
         }
         // For reading with the other hand.
         if settings.invertTapZones { forward.toggle() }
-        let target = currentPage + (forward ? 1 : -1)
-        guard target >= 0, target <= pages.count else { return }
-        withAnimation(.easeInOut(duration: 0.25)) { currentPage = target }
+        let current = currentPage >= pages.count
+            ? spreads.count
+            : (spreads.firstIndex(where: { $0.contains(currentPage) }) ?? 0)
+        let target = current + (forward ? 1 : -1)
+        guard target >= 0, target <= spreads.count else { return }
+        withAnimation(.easeInOut(duration: 0.25)) {
+            currentPage = target == spreads.count ? pages.count : (spreads[target].first ?? 0)
+        }
     }
 
     private func prefetch(after index: Int, in pages: [PageItem], decodeWidth: CGFloat) {
@@ -621,6 +675,13 @@ struct ReaderView: View {
                                 Label(item.title, systemImage: item.symbol).tag(item)
                             }
                         }
+                        if mode != .webtoon {
+                            Divider()
+                            Picker("Doble página", selection: $settings.doublePageMode) {
+                                ForEach(DoublePageMode.allCases) { Text($0.title).tag($0) }
+                            }
+                            Toggle("Recortar bordes", isOn: $settings.trimPageBorders)
+                        }
                     } label: {
                         Image(systemName: mode.symbol)
                     }
@@ -745,6 +806,88 @@ struct ReaderView: View {
         library.setRead(true, chapter: finished, in: context.manga)
         if settings.deleteAfterReading && segment.isOffline {
             downloads.delete(manga: context.manga, chapter: finished)
+        }
+    }
+}
+
+/// One paged-mode screen: a single page, or two pages merged into an open-book spread.
+struct SpreadPageView: View {
+    let pages: [PageItem]
+    let manga: MangaItem
+    let installed: InstalledExtension
+    let size: CGSize
+    let decodeWidth: CGFloat
+    let rightToLeft: Bool
+    let trimBorders: Bool
+    let onTap: ((CGFloat) -> Void)?
+
+    @State private var image: UIImage?
+    @State private var failed: String?
+    @State private var attempt = 0
+
+    private var loadKey: String {
+        "\(attempt)|\(trimBorders)|\(pages.map { String($0.index) }.joined(separator: "-"))"
+    }
+
+    var body: some View {
+        Group {
+            if let image {
+                ZoomableImageView(image: image) { position in onTap?(position) }
+                    .frame(width: size.width, height: size.height)
+            } else if let failed {
+                VStack(spacing: 10) {
+                    Image(systemName: "exclamationmark.triangle")
+                    Text("Página \((pages.first?.index ?? 0) + 1): \(failed)")
+                        .font(.caption)
+                        .multilineTextAlignment(.center)
+                    Button("Reintentar") { attempt += 1 }
+                        .buttonStyle(.bordered)
+                }
+                .foregroundStyle(.gray)
+                .padding()
+                .frame(width: size.width, height: size.height)
+            } else {
+                ProgressView()
+                    .tint(.gray)
+                    .frame(width: size.width, height: size.height)
+            }
+        }
+        .task(id: loadKey) { await load() }
+    }
+
+    private func load() async {
+        failed = nil
+        do {
+            var loaded: [UIImage] = []
+            for page in pages {
+                loaded.append(
+                    try await ImagePipeline.shared.page(
+                        page,
+                        sourceId: manga.sourceId,
+                        installed: installed,
+                        maxWidth: decodeWidth
+                    )
+                )
+            }
+            let trim = trimBorders
+            let rtl = rightToLeft
+            let fetched = loaded
+            // Trimming and compositing are CPU work; keep them off the main actor.
+            let composed = await Task.detached(priority: .userInitiated) { () -> UIImage? in
+                var images = fetched
+                if trim {
+                    images = images.map { ImagePipeline.trimmingBorders($0) }
+                }
+                if images.count == 2 {
+                    return ImagePipeline.spread(images[0], images[1], rightToLeft: rtl)
+                }
+                return images.first
+            }.value
+            if !Task.isCancelled {
+                image = composed
+            }
+        } catch {
+            if !Task.isCancelled { failed = error.localizedDescription }
         }
     }
 }

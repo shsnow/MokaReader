@@ -58,6 +58,18 @@ struct SettingsView: View {
                 Picker("Tema", selection: $settings.appTheme) {
                     ForEach(AppTheme.allCases) { Text($0.title).tag($0) }
                 }
+                if UIApplication.shared.supportsAlternateIcons {
+                    NavigationLink {
+                        AppIconPicker()
+                    } label: {
+                        HStack {
+                            Text("Ícono de la app")
+                            Spacer()
+                            Text(AppIconChoice.current.title)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
             }
 
             Section {
@@ -448,6 +460,95 @@ struct AdvancedSettingsView: View {
 }
 
 // MARK: - Shared pieces
+
+/// The app icons the user can pick; raw values match the alternate-icon asset names.
+enum AppIconChoice: String, CaseIterable, Identifiable {
+    case classic = ""
+    case night = "AppIconNight"
+    case terra = "AppIconTerra"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+            case .classic: return "Clásico"
+            case .night: return "Noche"
+            case .terra: return "Terracota"
+        }
+    }
+
+    /// Swatch colors matching each icon's paper and ink.
+    var paper: Color {
+        switch self {
+            case .classic: return Color(red: 0.957, green: 0.910, blue: 0.839)
+            case .night: return Color(red: 0.102, green: 0.071, blue: 0.055)
+            case .terra: return Color(red: 0.761, green: 0.325, blue: 0.169)
+        }
+    }
+
+    var ink: Color {
+        switch self {
+            case .classic: return Color(red: 0.157, green: 0.110, blue: 0.086)
+            case .night: return Color(red: 0.957, green: 0.910, blue: 0.839)
+            case .terra: return Color(red: 0.157, green: 0.094, blue: 0.063)
+        }
+    }
+
+    @MainActor static var current: AppIconChoice {
+        AppIconChoice(rawValue: UIApplication.shared.alternateIconName ?? "") ?? .classic
+    }
+}
+
+/// Lets the user switch between the bundled app icons.
+struct AppIconPicker: View {
+    @State private var selected: AppIconChoice = .classic
+
+    var body: some View {
+        List(AppIconChoice.allCases) { choice in
+            Button {
+                apply(choice)
+            } label: {
+                HStack(spacing: 14) {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(choice.paper)
+                        .frame(width: 52, height: 52)
+                        .overlay {
+                            Image(systemName: "book.closed.fill")
+                                .font(.title3)
+                                .foregroundStyle(choice.ink)
+                        }
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .strokeBorder(Color.primary.opacity(0.12))
+                        )
+                    Text(choice.title)
+                        .foregroundStyle(.primary)
+                    Spacer()
+                    if choice == selected {
+                        Image(systemName: "checkmark")
+                            .fontWeight(.semibold)
+                            .foregroundStyle(Color.moka)
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+        }
+        .navigationTitle("Ícono de la app")
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear { selected = .current }
+    }
+
+    private func apply(_ choice: AppIconChoice) {
+        guard choice != selected else { return }
+        let previous = selected
+        selected = choice
+        UIApplication.shared.setAlternateIconName(choice == .classic ? nil : choice.rawValue) { error in
+            if error != nil {
+                Task { @MainActor in selected = previous }
+            }
+        }
+    }
+}
 
 struct LanguagePicker: View {
     let options: [String]

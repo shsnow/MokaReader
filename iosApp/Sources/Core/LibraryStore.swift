@@ -42,6 +42,8 @@ struct MangaProgress: Codable, Hashable {
     var readSeconds: Double? = nil
     /// Chapters the user starred to come back to.
     var bookmarkedChapters: Set<String>? = nil
+    /// When a series has the same chapter from several groups, keep this one.
+    var preferredScanlator: String? = nil
 }
 
 /// The user's library and reading progress. Progress is kept for every manga opened, not only
@@ -105,7 +107,7 @@ final class LibraryStore: ObservableObject {
 
     func unreadCount(for entry: LibraryEntry) -> Int {
         let read = progress[entry.manga.id]?.readChapters ?? []
-        return entry.chapters.filter { !read.contains($0.url) }.count
+        return effectiveChapters(of: entry).filter { !read.contains($0.url) }.count
     }
 
     func isRead(_ chapter: ChapterItem, in manga: MangaItem) -> Bool {
@@ -233,7 +235,7 @@ final class LibraryStore: ObservableObject {
 
     /// The chapter "Continuar" should open: the last one opened if unfinished, otherwise the next.
     func continueChapter(in entry: LibraryEntry) -> ChapterItem? {
-        let ordered = Array(entry.chapters.reversed())
+        let ordered = Array(effectiveChapters(of: entry).reversed())
         guard !ordered.isEmpty else { return nil }
         if let last = progress[entry.manga.id]?.lastReadChapter,
            let index = ordered.firstIndex(where: { $0.url == last }) {
@@ -255,7 +257,13 @@ final class LibraryStore: ObservableObject {
         let oldProgress = progress[old.id]
 
         func numbers(of urls: Set<String>) -> Set<Float> {
-            Set(oldEntry.chapters.filter { urls.contains($0.url) }.compactMap(\.number))
+            // -1 is Tachiyomi's "no number" sentinel; it must not match across sources.
+            Set(
+                oldEntry.chapters
+                    .filter { urls.contains($0.url) }
+                    .compactMap(\.number)
+                    .filter { $0 >= 0 }
+            )
         }
         func urls(matching numbers: Set<Float>) -> Set<String> {
             Set(newChapters.filter { $0.number.map(numbers.contains) == true }.map(\.url))
@@ -272,6 +280,7 @@ final class LibraryStore: ObservableObject {
         moved.lastReadAt = oldProgress?.lastReadAt
         if let lastURL = oldProgress?.lastReadChapter,
            let number = oldEntry.chapters.first(where: { $0.url == lastURL })?.number,
+           number >= 0,
            let match = newChapters.first(where: { $0.number == number }) {
             moved.lastReadChapter = match.url
         }
@@ -288,6 +297,82 @@ final class LibraryStore: ObservableObject {
         progress[old.id] = nil
         saveLibrary()
         saveProgress()
+    }
+
+    // MARK: - Scanlator preference
+
+    func preferredScanlator(for manga: MangaItem) -> String? {
+        progress[manga.id]?.preferredScanlator
+    }
+
+    func setPreferredScanlator(_ scanlator: String?, for manga: MangaItem) {
+        var value = progress[manga.id] ?? MangaProgress()
+        value.preferredScanlator = scanlator
+        progress[manga.id] = value
+        saveProgress()
+    }
+
+    /// Drops duplicate chapters from other groups when the preferred one covers that number.
+    /// Chapters without a number, and numbers the preferred group never released, stay.
+    static func applyScanlatorPreference(
+        _ chapters: [ChapterItem],
+        preferred: String?
+    ) -> [ChapterItem] {
+        guard let preferred, !preferred.isEmpty else { return chapters }
+        // Sources without numbering report -1 (Tachiyomi's sentinel); those never collide.
+        let covered = Set(
+            chapters
+                .filter { $0.scanlator == preferred }
+                .compactMap(\.number)
+                .filter { $0 >= 0 }
+        )
+        guard !covered.isEmpty else { return chapters }
+        return chapters.filter { chapter in
+            guard let number = chapter.number, number >= 0, covered.contains(number) else {
+                return true
+            }
+            return chapter.scanlator == preferred
+        }
+    }
+
+    /// The entry's chapters as the detail view shows them, with the scanlator preference applied.
+    func effectiveChapters(of entry: LibraryEntry) -> [ChapterItem] {
+        Self.applyScanlatorPreference(
+            entry.chapters,
+            preferred: progress[entry.manga.id]?.preferredScanlator
+        )
+    }
+
+    // MARK: - Custom covers
+
+    /// Bumped whenever a custom cover changes, so the cover views reload.
+    @Published private(set) var coverVersion = 0
+
+    static var customCoversDirectory: URL {
+        let url = Storage.supportDirectory.appendingPathComponent(
+            "CustomCovers", isDirectory: true
+        )
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    func customCoverURL(for manga: MangaItem) -> URL? {
+        let url = Self.customCoversDirectory
+            .appendingPathComponent(ImagePipeline.hash(manga.id) + ".jpg")
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    func setCustomCover(_ data: Data, for manga: MangaItem) {
+        let url = Self.customCoversDirectory
+            .appendingPathComponent(ImagePipeline.hash(manga.id) + ".jpg")
+        try? data.write(to: url, options: .atomic)
+        coverVersion += 1
+    }
+
+    func removeCustomCover(for manga: MangaItem) {
+        guard let url = customCoverURL(for: manga) else { return }
+        try? FileManager.default.removeItem(at: url)
+        coverVersion += 1
     }
 
     func readingMode(for manga: MangaItem, fallback: ReadingMode) -> ReadingMode {

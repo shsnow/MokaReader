@@ -65,9 +65,19 @@ final class LibraryUpdater: ObservableObject {
                 // An entry with no chapter list yet is skipped: there "new" would mean the
                 // whole series.
                 if AppSettings.shared.autoDownloadUpdates, !known.isEmpty, !fresh.isEmpty {
-                    DownloadManager.shared.enqueue(
-                        Array(fresh.reversed()), manga: result.manga, installed: installed
+                    // Don't auto-download duplicates the scanlator preference hides.
+                    let visible = Set(
+                        LibraryStore.applyScanlatorPreference(
+                            result.chapters,
+                            preferred: library.preferredScanlator(for: entry.manga)
+                        ).map(\.url)
                     )
+                    let wanted = fresh.filter { visible.contains($0.url) }
+                    if !wanted.isEmpty {
+                        DownloadManager.shared.enqueue(
+                            Array(wanted.reversed()), manga: result.manga, installed: installed
+                        )
+                    }
                 }
                 library.refresh(result.manga, chapters: result.chapters)
             } catch {

@@ -34,7 +34,7 @@ iosApp/
   Sources/Core           Modelos, biblioteca, ajustes, persistencia
   Sources/Engine         JVMEngine, repositorios, imágenes
   Sources/Views          Interfaz SwiftUI
-  Packages/TachiJVMRunner  Puente Swift/JNI (temporal, GPL-3.0)
+  Packages/WizardJVMRunner  Puente Swift/JNI propio (Apache-2.0)
   Scripts/               Build de OpenJDK y del runtime
   project.yml            Proyecto XcodeGen
 ```

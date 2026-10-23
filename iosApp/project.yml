@@ -78,6 +78,9 @@ targets:
         SWIFT_VERSION: "5.0"
         TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # Íconos alternativos elegibles desde Ajustes → Apariencia.
+        ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: "AppIconNight AppIconTerra"
+        ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS: "NO"
         CODE_SIGN_STYLE: Automatic
         ENABLE_USER_SCRIPT_SANDBOXING: NO
         # The statically linked VM has no dynamic framework to carry its own dependencies.

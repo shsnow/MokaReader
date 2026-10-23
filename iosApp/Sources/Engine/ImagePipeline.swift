@@ -201,6 +201,96 @@ actor ImagePipeline {
         SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
+    /// Crops uniform borders (white margins, scan edges) around a page. The border color is
+    /// whatever the corners agree on; if the content box is implausibly small, or the image has
+    /// no real border, the original comes back untouched.
+    static func trimmingBorders(_ image: UIImage) -> UIImage {
+        guard let cgImage = image.cgImage else { return image }
+        let fullWidth = cgImage.width
+        let fullHeight = cgImage.height
+        guard fullWidth > 16, fullHeight > 16 else { return image }
+
+        // Analyze a small grayscale copy; precision at the pixel level is not needed.
+        let sampleWidth = 96
+        let sampleHeight = max(16, Int(Double(sampleWidth) * Double(fullHeight) / Double(fullWidth)))
+        var samples = [UInt8](repeating: 0, count: sampleWidth * sampleHeight)
+        let drew = samples.withUnsafeMutableBytes { buffer -> Bool in
+            guard
+                let space = CGColorSpace(name: CGColorSpace.linearGray),
+                let context = CGContext(
+                    data: buffer.baseAddress,
+                    width: sampleWidth,
+                    height: sampleHeight,
+                    bitsPerComponent: 8,
+                    bytesPerRow: sampleWidth,
+                    space: space,
+                    bitmapInfo: CGImageAlphaInfo.none.rawValue
+                )
+            else { return false }
+            context.interpolationQuality = .low
+            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: sampleWidth, height: sampleHeight))
+            return true
+        }
+        guard drew else { return image }
+
+        func value(_ x: Int, _ y: Int) -> Int { Int(samples[y * sampleWidth + x]) }
+        let background = (
+            value(0, 0) + value(sampleWidth - 1, 0) +
+            value(0, sampleHeight - 1) + value(sampleWidth - 1, sampleHeight - 1)
+        ) / 4
+        let threshold = 28
+
+        var minX = sampleWidth, maxX = -1, minY = sampleHeight, maxY = -1
+        for y in 0..<sampleHeight {
+            for x in 0..<sampleWidth where abs(value(x, y) - background) > threshold {
+                if x < minX { minX = x }
+                if x > maxX { maxX = x }
+                if y < minY { minY = y }
+                if y > maxY { maxY = y }
+            }
+        }
+        guard maxX >= minX, maxY >= minY else { return image }
+
+        // One sample cell of breathing room, then scale back up to pixels.
+        let scaleX = Double(fullWidth) / Double(sampleWidth)
+        let scaleY = Double(fullHeight) / Double(sampleHeight)
+        let crop = CGRect(
+            x: max(0, (Double(minX) - 1) * scaleX),
+            y: max(0, (Double(minY) - 1) * scaleY),
+            width: min(Double(fullWidth), (Double(maxX - minX) + 3) * scaleX),
+            height: min(Double(fullHeight), (Double(maxY - minY) + 3) * scaleY)
+        ).intersection(CGRect(x: 0, y: 0, width: fullWidth, height: fullHeight))
+
+        let area = crop.width * crop.height
+        let fullArea = CGFloat(fullWidth * fullHeight)
+        // No meaningful border, or so aggressive it would eat the page: leave it alone.
+        guard area < fullArea * 0.97, area > fullArea * 0.25 else { return image }
+        guard let trimmed = cgImage.cropping(to: crop) else { return image }
+        return UIImage(cgImage: trimmed, scale: image.scale, orientation: image.imageOrientation)
+    }
+
+    /// Two pages side by side as one image, for the double-page spread. The pages are scaled
+    /// to a common height; `rightToLeft` puts the first page on the right, like a printed manga.
+    static func spread(_ first: UIImage, _ second: UIImage, rightToLeft: Bool) -> UIImage {
+        let height = min(first.size.height, second.size.height)
+        guard height > 0 else { return first }
+        let firstWidth = first.size.width * (height / first.size.height)
+        let secondWidth = second.size.width * (height / second.size.height)
+        let size = CGSize(width: firstWidth + secondWidth, height: height)
+
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        return renderer.image { _ in
+            let leading = rightToLeft ? second : first
+            let trailing = rightToLeft ? first : second
+            let leadingWidth = rightToLeft ? secondWidth : firstWidth
+            let trailingWidth = rightToLeft ? firstWidth : secondWidth
+            leading.draw(in: CGRect(x: 0, y: 0, width: leadingWidth, height: height))
+            trailing.draw(in: CGRect(x: leadingWidth, y: 0, width: trailingWidth, height: height))
+        }
+    }
+
     /// Decodes at most `maxWidth` pixels wide. A webtoon page can be 800×12000 px; decoding it at
     /// full size for every page is what gets a reader killed for memory.
     static func decode(_ data: Data, maxWidth: CGFloat) -> UIImage? {

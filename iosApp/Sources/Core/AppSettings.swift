@@ -45,6 +45,21 @@ enum ReaderBackground: String, CaseIterable, Identifiable {
     }
 }
 
+/// When the paged reader shows two pages side by side, like an open book.
+enum DoublePageMode: String, CaseIterable, Identifiable {
+    case off, landscape, always
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+            case .off: return "Nunca"
+            case .landscape: return "En horizontal"
+            case .always: return "Siempre"
+        }
+    }
+}
+
 enum LibrarySort: String, CaseIterable, Identifiable {
     case recent, title, unread
 
@@ -149,6 +164,16 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(updateOnLaunch, forKey: "updateOnLaunch") }
     }
 
+    /// Two pages side by side in the paged reader.
+    @Published var doublePageMode: DoublePageMode {
+        didSet { defaults.set(doublePageMode.rawValue, forKey: "doublePageMode") }
+    }
+
+    /// Crop uniform borders around pages in the paged reader.
+    @Published var trimPageBorders: Bool {
+        didSet { defaults.set(trimPageBorders, forKey: "trimPageBorders") }
+    }
+
     private init() {
         // A local, so nothing reads `self` before every stored property is initialized.
         let defaults = UserDefaults.standard
@@ -179,6 +204,9 @@ final class AppSettings: ObservableObject {
         showUnreadBadges = defaults.object(forKey: "showUnreadBadges") as? Bool ?? true
         showContinueRow = defaults.object(forKey: "showContinueRow") as? Bool ?? true
         updateOnLaunch = defaults.bool(forKey: "updateOnLaunch")
+        doublePageMode = DoublePageMode(rawValue: defaults.string(forKey: "doublePageMode") ?? "")
+            ?? .landscape
+        trimPageBorders = defaults.bool(forKey: "trimPageBorders")
     }
 
     func shows(language: String) -> Bool {

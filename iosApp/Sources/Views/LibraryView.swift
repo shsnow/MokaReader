@@ -201,7 +201,7 @@ struct LibraryView: View {
         let target = library.continueChapter(in: entry)
         if let target, let installed = extensions.extensionFor(sourceId: entry.manga.sourceId) {
             Button {
-                let ordered = Array(entry.chapters.reversed())
+                let ordered = Array(library.effectiveChapters(of: entry).reversed())
                 guard let index = ordered.firstIndex(where: { $0.url == target.url }) else { return }
                 reader = ReaderContext(
                     manga: entry.manga, installed: installed, chapters: ordered, startIndex: index
