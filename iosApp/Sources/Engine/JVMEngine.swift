@@ -34,7 +34,7 @@ enum EngineError: LocalizedError {
     static func readable(_ message: String) -> String {
         let lowered = message.lowercased()
         if lowered.contains("cloudflare") {
-            return "El sitio pidió una verificación de Cloudflare. Wizard Cat Reader todavía no puede resolverla."
+            return "El sitio pidió una verificación de Cloudflare. Abre la fuente en WebView (el botón del globo), resuelve la verificación y reintenta."
         }
         return message
     }
@@ -379,6 +379,62 @@ final class JVMEngine: @unchecked Sendable {
             )
             .map { PageItem(index: $0.index, url: $0.url, imageURL: $0.imageURL) }
             .sorted { $0.index < $1.index }
+        }
+    }
+
+    // MARK: - Web login (Cloudflare, sign-ins)
+
+    /// What the WebView flow needs: the site to open and the exact user agent the
+    /// source's HTTP client sends. A challenge solved with another agent would not count.
+    struct WebLoginInfo: Decodable {
+        let baseURL: String
+        let userAgent: String
+    }
+
+    func webLoginInfo(sourceId: Int64, installed: InstalledExtension) async throws -> WebLoginInfo {
+        let response = try await onQueue(loading: installed) { runtime -> ExtensionHostResponse in
+            try Self.checked(
+                runtime.dispatch(
+                    ExtensionHostRequest(
+                        operation: "getWebLoginInfo",
+                        extensionId: installed.id,
+                        sourceId: String(sourceId)
+                    )
+                )
+            )
+        }
+        guard
+            let result = response.result,
+            let info = try? JSONDecoder().decode(WebLoginInfo.self, from: Data(result.utf8))
+        else {
+            throw EngineError.host("La fuente no entregó la información de su sitio.")
+        }
+        return info
+    }
+
+    /// Hands cookies from the WebView to the source's HTTP client, so a solved
+    /// Cloudflare challenge (cf_clearance) or sign-in applies to its requests.
+    /// `lines` is the host's format: one cookie per line,
+    /// name/value/domain/path percent-encoded and tab-separated with
+    /// expiresAtMs, secure, httpOnly and hostOnly.
+    func setWebLoginCookies(
+        _ lines: String,
+        sourceId: Int64,
+        installed: InstalledExtension,
+        userAgent: String?
+    ) async throws {
+        _ = try await onQueue(loading: installed) { runtime -> ExtensionHostResponse in
+            try Self.checked(
+                runtime.dispatch(
+                    ExtensionHostRequest(
+                        operation: "setWebLoginCookies",
+                        extensionId: installed.id,
+                        sourceId: String(sourceId),
+                        argument: lines,
+                        userAgent: userAgent
+                    )
+                )
+            )
         }
     }
 

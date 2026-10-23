@@ -92,6 +92,7 @@ struct SourceBrowseView: View {
     @State private var selections = SourceFilterSelections()
     @State private var appliedFilterStates: String?
     @State private var showingFilters = false
+    @State private var showingWebView = false
 
     enum Mode: String, CaseIterable, Identifiable {
         case popular = "Popular"
@@ -133,8 +134,13 @@ struct SourceBrowseView: View {
             }
             if let error, items.isEmpty {
                 EmptyStateView(symbol: "exclamationmark.triangle", title: "No se pudo cargar", message: error)
-                Button("Reintentar") { Task { await reload() } }
-                    .padding(.bottom, 40)
+                HStack(spacing: 16) {
+                    Button("Reintentar") { Task { await reload() } }
+                    if extensions.extensionFor(sourceId: source.id) != nil {
+                        Button("Abrir WebView") { showingWebView = true }
+                    }
+                }
+                .padding(.bottom, 40)
             } else if items.isEmpty && isLoading {
                 ProgressView("Cargando…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -164,6 +170,15 @@ struct SourceBrowseView: View {
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
+                    showingWebView = true
+                } label: {
+                    Image(systemName: "globe")
+                }
+                .disabled(extensions.extensionFor(sourceId: source.id) == nil)
+                .accessibilityLabel("Abrir el sitio en WebView")
+            }
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
                     showingFilters = true
                 } label: {
                     Image(systemName: appliedFilterStates == nil
@@ -172,6 +187,19 @@ struct SourceBrowseView: View {
                 }
                 .disabled(extensions.extensionFor(sourceId: source.id) == nil)
                 .accessibilityLabel("Filtros de búsqueda")
+            }
+        }
+        .sheet(isPresented: $showingWebView) {
+            if let installed = extensions.extensionFor(sourceId: source.id) {
+                WebLoginSheet(
+                    sourceId: source.id,
+                    displayName: source.name,
+                    installed: installed
+                ) {
+                    if items.isEmpty || error != nil {
+                        Task { await reload() }
+                    }
+                }
             }
         }
         .sheet(isPresented: $showingFilters) {

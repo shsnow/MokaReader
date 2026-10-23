@@ -30,6 +30,7 @@ struct MangaDetailView: View {
     @State private var actionError: String?
     @State private var confirmingDeleteDownloads = false
     @State private var confirmingRemoval = false
+    @State private var showingWebLogin = false
 
     init(manga: MangaItem) {
         _manga = State(initialValue: manga)
@@ -154,7 +155,7 @@ struct MangaDetailView: View {
                     Image(systemName: library.contains(manga) ? "bookmark.fill" : "bookmark")
                 }
                 .accessibilityLabel(library.contains(manga) ? "Quitar de la biblioteca" : "Guardar en la biblioteca")
-                if siteURL != nil || library.contains(manga) {
+                if siteURL != nil || library.contains(manga) || installed != nil {
                     Menu {
                         if scanlators.count >= 2 {
                             Picker("Scanlator preferido", selection: scanlatorBinding) {
@@ -182,6 +183,13 @@ struct MangaDetailView: View {
                                 migrating = true
                             } label: {
                                 Label("Migrar de fuente", systemImage: "arrow.left.arrow.right")
+                            }
+                        }
+                        if installed != nil {
+                            Button {
+                                showingWebLogin = true
+                            } label: {
+                                Label("Abrir en WebView", systemImage: "globe")
                             }
                         }
                         if let siteURL {
@@ -229,6 +237,18 @@ struct MangaDetailView: View {
                     }
             }
             .presentationDetents([.medium])
+        }
+        .sheet(isPresented: $showingWebLogin) {
+            if let installed {
+                WebLoginSheet(
+                    sourceId: manga.sourceId,
+                    displayName: installed.name,
+                    installed: installed,
+                    startURL: siteURL
+                ) {
+                    Task { await refresh() }
+                }
+            }
         }
         .sheet(isPresented: $migrating) {
             MigrateSourceView(manga: manga) { newManga, newChapters in
