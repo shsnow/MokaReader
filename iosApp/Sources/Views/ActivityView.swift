@@ -14,6 +14,7 @@ struct ActivityView: View {
     @ObservedObject private var shortcuts = TabShortcuts.shared
     @State private var section: Section = .updates
     @State private var showingDownloads = false
+    @State private var confirmingClear = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -51,10 +52,18 @@ struct ActivityView: View {
                         Image(systemName: "arrow.clockwise")
                     }
                     .disabled(library.entries.isEmpty)
+                    .accessibilityLabel("Actualizar biblioteca")
                 }
             } else if !library.history.isEmpty {
-                Button("Borrar") { library.clearHistory() }
+                Button("Borrar") { confirmingClear = true }
             }
+        }
+        .confirmationDialog(
+            "¿Borrar todo el historial de lectura?",
+            isPresented: $confirmingClear,
+            titleVisibility: .visible
+        ) {
+            Button("Borrar historial", role: .destructive) { library.clearHistory() }
         }
     }
 }
@@ -63,9 +72,37 @@ private struct UpdatesList: View {
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var extensions: ExtensionManager
     @EnvironmentObject private var updater: LibraryUpdater
+    @EnvironmentObject private var downloads: DownloadManager
 
     var body: some View {
+        if library.entries.isEmpty {
+            EmptyStateView(
+                symbol: "bolt",
+                title: "Sin novedades",
+                message: "Guarda series en tu biblioteca para ver aquí sus capítulos nuevos."
+            )
+        } else {
+            list
+        }
+    }
+
+    private var list: some View {
         List {
+            if !downloads.queue.isEmpty {
+                NavigationLink {
+                    DownloadsView()
+                } label: {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        Text(downloads.queue.count == 1
+                            ? "Descargando 1 capítulo…"
+                            : "Descargando \(downloads.queue.count) capítulos…")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .listRowSeparator(.hidden)
+            }
             if updater.isRefreshing {
                 HStack(spacing: 10) {
                     ProgressView()
@@ -78,23 +115,20 @@ private struct UpdatesList: View {
                 Text(
                     updater.newChapters == 0
                         ? "Sin capítulos nuevos (\(finished.shortText))."
-                        : "\(updater.newChapters) capítulos nuevos."
+                        : updater.newChapters == 1
+                            ? "1 capítulo nuevo."
+                            : "\(updater.newChapters) capítulos nuevos."
                 )
                 .font(.footnote)
                 .foregroundStyle(updater.newChapters == 0 ? .secondary : Color.moka)
                 .listRowSeparator(.hidden)
             }
 
-            if library.entries.isEmpty {
-                Text("Guarda series en tu biblioteca para ver aquí sus capítulos nuevos.")
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(library.latestUploads, id: \.chapter.url) { item in
-                    NavigationLink(value: item.manga) {
-                        row(item.manga, item.chapter)
-                    }
-                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 12))
+            ForEach(library.latestUploads, id: \.chapter.url) { item in
+                NavigationLink(value: item.manga) {
+                    row(item.manga, item.chapter)
                 }
+                .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 12))
             }
         }
         .listStyle(.plain)

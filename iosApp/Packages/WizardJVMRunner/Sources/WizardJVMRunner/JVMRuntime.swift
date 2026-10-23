@@ -1,14 +1,16 @@
-import CJVMBridge
+// WizardJVMRunner — Apache License 2.0
+
+import CWizardJVMBridge
 import Foundation
 
+/// The single in-process Java VM. Creating a second instance in the same
+/// process fails: JNI allows one VM per process, forever.
 public final class JVMRuntime: @unchecked Sendable {
     private let handle: OpaquePointer
 
     public init(configuration: JVMRuntimeConfiguration) throws {
         guard configuration.javaHomeURL.isFileURL else {
-            throw JVMRuntimeError.invalidConfiguration(
-                "JAVA_HOME must be a file URL"
-            )
+            throw JVMRuntimeError.invalidConfiguration("JAVA_HOME must be a file URL")
         }
         guard configuration.frameworksURL.isFileURL else {
             throw JVMRuntimeError.invalidConfiguration(
@@ -16,37 +18,27 @@ public final class JVMRuntime: @unchecked Sendable {
             )
         }
         guard !configuration.classpathURLs.isEmpty else {
-            throw JVMRuntimeError.invalidConfiguration(
-                "Classpath cannot be empty"
-            )
+            throw JVMRuntimeError.invalidConfiguration("Classpath cannot be empty")
         }
+
+        let optionCopies = configuration.additionalOptions.compactMap { strdup($0) }
+        defer { optionCopies.forEach { free($0) } }
+        guard optionCopies.count == configuration.additionalOptions.count else {
+            throw JVMRuntimeError.startupFailed("Unable to allocate JVM option strings")
+        }
+        let options: [UnsafePointer<CChar>?] = optionCopies.map { UnsafePointer($0) }
 
         var errorPointer: UnsafeMutablePointer<CChar>?
-        let optionPointers = configuration.additionalOptions.compactMap {
-            strdup($0)
-        }
-        defer {
-            optionPointers.forEach { free($0) }
-        }
-        guard optionPointers.count == configuration.additionalOptions.count else {
-            throw JVMRuntimeError.startupFailed(
-                "Unable to allocate JVM option strings"
-            )
-        }
-
-        let immutableOptionPointers: [UnsafePointer<CChar>?] = optionPointers.map {
-            UnsafePointer<CChar>($0)
-        }
-        let runtime = configuration.javaHomeURL.path.withCString { javaHome in
+        let created = configuration.javaHomeURL.path.withCString { javaHome in
             configuration.frameworksURL.path.withCString { frameworks in
                 configuration.classpath.withCString { classpath in
-                    immutableOptionPointers.withUnsafeBufferPointer { options in
-                        tjr_runtime_create(
+                    options.withUnsafeBufferPointer { buffer in
+                        wjb_runtime_create(
                             javaHome,
                             frameworks,
                             classpath,
-                            options.baseAddress,
-                            Int32(options.count),
+                            buffer.baseAddress,
+                            Int32(buffer.count),
                             &errorPointer
                         )
                     }
@@ -54,47 +46,39 @@ public final class JVMRuntime: @unchecked Sendable {
             }
         }
 
-        guard let runtime else {
+        guard let created else {
             throw JVMRuntimeError.startupFailed(
                 Self.takeString(errorPointer) ?? "Unknown startup error"
             )
         }
-        handle = runtime
+        handle = created
     }
 
     deinit {
-        tjr_runtime_release(handle)
+        wjb_runtime_release(handle)
     }
 
     public func dispatch(_ requestJSON: String) throws -> String {
         var responsePointer: UnsafeMutablePointer<CChar>?
         var errorPointer: UnsafeMutablePointer<CChar>?
         let status = requestJSON.withCString { request in
-            tjr_runtime_dispatch(
-                handle,
-                request,
-                &responsePointer,
-                &errorPointer
-            )
+            wjb_runtime_dispatch(handle, request, &responsePointer, &errorPointer)
         }
 
         let error = Self.takeString(errorPointer)
-        guard status == TJRStatusOK else {
+        guard status == WJBStatusOK else {
             if let responsePointer {
-                tjr_string_free(responsePointer)
+                wjb_string_free(responsePointer)
             }
             throw JVMRuntimeError.dispatchFailed(
                 status: Int(status.rawValue),
                 message: error ?? "Unknown Java error"
             )
         }
-
         guard let responsePointer else {
             throw JVMRuntimeError.invalidUTF8Response
         }
-        defer {
-            tjr_string_free(responsePointer)
-        }
+        defer { wjb_string_free(responsePointer) }
         guard let response = String(validatingUTF8: responsePointer) else {
             throw JVMRuntimeError.invalidUTF8Response
         }
@@ -113,13 +97,9 @@ public final class JVMRuntime: @unchecked Sendable {
         } catch {
             throw JVMRuntimeError.encodingFailed
         }
-
         let responseJSON = try dispatch(String(decoding: encoded, as: UTF8.self))
         do {
-            return try decoder.decode(
-                responseType,
-                from: Data(responseJSON.utf8)
-            )
+            return try decoder.decode(responseType, from: Data(responseJSON.utf8))
         } catch {
             throw JVMRuntimeError.decodingFailed(error.localizedDescription)
         }
@@ -129,9 +109,7 @@ public final class JVMRuntime: @unchecked Sendable {
         _ pointer: UnsafeMutablePointer<CChar>?
     ) -> String? {
         guard let pointer else { return nil }
-        defer {
-            tjr_string_free(pointer)
-        }
+        defer { wjb_string_free(pointer) }
         return String(validatingUTF8: pointer)
     }
 }

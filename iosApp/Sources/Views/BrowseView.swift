@@ -170,6 +170,8 @@ struct SourceBrowseView: View {
                         ? "line.3.horizontal.decrease.circle"
                         : "line.3.horizontal.decrease.circle.fill")
                 }
+                .disabled(extensions.extensionFor(sourceId: source.id) == nil)
+                .accessibilityLabel("Filtros de búsqueda")
             }
         }
         .sheet(isPresented: $showingFilters) {

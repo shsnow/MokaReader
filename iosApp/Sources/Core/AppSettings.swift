@@ -52,7 +52,7 @@ enum LibrarySort: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-            case .recent: return "Leídos recién"
+            case .recent: return "Recién leídos"
             case .title: return "Título"
             case .unread: return "Sin leer"
         }

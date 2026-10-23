@@ -41,6 +41,8 @@ final class DownloadManager: ObservableObject {
     @Published private(set) var queue: [DownloadJob] = []
     @Published private(set) var progress: [String: Double] = [:]
     @Published private(set) var failures: [String: String] = [:]
+    /// Jobs that failed, kept so the Descargas screen can show and retry them.
+    @Published private(set) var failedJobs: [DownloadJob] = []
 
     private var worker: Task<Void, Never>?
     private var currentJob: String?
@@ -116,9 +118,19 @@ final class DownloadManager: ObservableObject {
             let job = DownloadJob(manga: manga, chapter: chapter, installed: installed)
             guard downloaded[job.id] == nil, !queue.contains(where: { $0.id == job.id }) else { continue }
             failures[job.id] = nil
+            failedJobs.removeAll { $0.id == job.id }
             queue.append(job)
         }
         startIfNeeded()
+    }
+
+    func retry(_ job: DownloadJob) {
+        enqueue([job.chapter], manga: job.manga, installed: job.installed)
+    }
+
+    func dismissFailure(_ job: DownloadJob) {
+        failedJobs.removeAll { $0.id == job.id }
+        failures[job.id] = nil
     }
 
     func cancel(_ job: DownloadJob) {
@@ -176,6 +188,8 @@ final class DownloadManager: ObservableObject {
                 // already removed from the queue.
             } catch {
                 failures[job.id] = error.localizedDescription
+                failedJobs.removeAll { $0.id == job.id }
+                failedJobs.append(job)
             }
             progress[job.id] = nil
             queue.removeAll { $0.id == job.id }

@@ -1,5 +1,5 @@
 import Foundation
-import TachiJVMRunner
+import WizardJVMRunner
 
 /// Minimal protobuf wire-format reader, enough for Mihon's extension repository index.
 struct ProtobufReader {

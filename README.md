@@ -23,7 +23,7 @@ embebida (OpenJDK Mobile en modo intérprete) con la capa de compatibilidad Andr
 - [ ] Portadas personalizadas, íconos alternativos, pestañas configurables
 - [ ] Recorte de bordes y acciones de Apple Pencil
 - [ ] WebView para Cloudflare
-- [ ] Reemplazar/relicenciar TachiJVMRunner (ver `NOTICE.md`)
+- [x] Puente Swift/JNI propio (WizardJVMRunner, Apache-2.0) en lugar del paquete GPL
 
 ## Estructura
 

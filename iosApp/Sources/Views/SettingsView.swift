@@ -54,6 +54,12 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Apariencia") {
+                Picker("Tema", selection: $settings.appTheme) {
+                    ForEach(AppTheme.allCases) { Text($0.title).tag($0) }
+                }
+            }
+
             Section {
                 NavigationLink {
                     InsightsView()
@@ -501,7 +507,8 @@ struct LicensesView: View {
     • OpenJDK Mobile — GPL v2 con Classpath Exception. La máquina virtual Java que ejecuta las extensiones.
     • Suwayomi-Server (AndroidCompat) — Mozilla Public License 2.0. La capa de compatibilidad con Android.
     • Host de extensiones y núcleo compartido de TachiyomiAZ — Apache License 2.0, © az4521 y colaboradores.
-    • TachiJVMRunner — puente Swift/JNI de TachiyomiAZ iOS (GPL v3; se reemplazará o relicenciará antes de publicar).
+    • WizardJVMRunner — puente Swift/JNI propio de Wizard Cat Reader, Apache License 2.0 \
+    (incluye las cabeceras JNI de OpenJDK, GPL v2 con Classpath Exception).
     • Formato de extensiones y backups de Mihon / Tachiyomi — Apache License 2.0.
 
     Gracias a los equipos de Mihon, Tachiyomi, Suwayomi, Aidoku, TachiyomiAZ y OpenJDK.

@@ -1,3 +1,7 @@
+// WizardJVMRunner — Apache License 2.0
+//
+// Typed convenience calls over the extension host's JSON operations.
+
 import Foundation
 
 public struct TachiyomiXManga: Codable, Sendable, Equatable {
@@ -86,9 +90,7 @@ public struct TachiyomiXSourceDescriptor: Codable, Sendable, Equatable {
 public extension JVMRuntime {
     @discardableResult
     func initializeExtensionCompatibility() throws -> ExtensionHostResponse {
-        try checkedDispatch(
-            ExtensionHostRequest(operation: "initializeCompatibility")
-        )
+        try checkedDispatch(ExtensionHostRequest(operation: "initializeCompatibility"))
     }
 
     @discardableResult
@@ -153,68 +155,11 @@ public extension JVMRuntime {
         )
     }
 
-    private func pagedManga(
-        operation: String,
-        extensionId: String,
-        sourceId: Int64?,
-        page: Int,
-        query: String? = nil
-    ) throws -> TachiyomiXMangaPage {
-        guard page > 0 else {
-            throw JVMRuntimeError.invalidConfiguration(
-                "Manga page must be at least 1"
-            )
-        }
+    func sources(extensionId: String) throws -> [TachiyomiXSourceDescriptor] {
         let response = try checkedDispatch(
-            ExtensionHostRequest(
-                operation: operation,
-                extensionId: extensionId,
-                sourceId: sourceId.map(String.init),
-                argument: String(page),
-                query: query
-            )
+            ExtensionHostRequest(operation: "listSources", extensionId: extensionId)
         )
-        guard let result = response.result else {
-            throw JVMRuntimeError.decodingFailed(
-                "Manga-page response has no result"
-            )
-        }
-        do {
-            return try JSONDecoder().decode(
-                TachiyomiXMangaPage.self,
-                from: Data(result.utf8)
-            )
-        } catch {
-            throw JVMRuntimeError.decodingFailed(
-                error.localizedDescription
-            )
-        }
-    }
-
-    func sources(
-        extensionId: String
-    ) throws -> [TachiyomiXSourceDescriptor] {
-        let response = try checkedDispatch(
-            ExtensionHostRequest(
-                operation: "listSources",
-                extensionId: extensionId
-            )
-        )
-        guard let result = response.result else {
-            throw JVMRuntimeError.decodingFailed(
-                "Source list response has no result"
-            )
-        }
-        do {
-            return try JSONDecoder().decode(
-                [TachiyomiXSourceDescriptor].self,
-                from: Data(result.utf8)
-            )
-        } catch {
-            throw JVMRuntimeError.decodingFailed(
-                error.localizedDescription
-            )
-        }
+        return try decodeResult(response, as: [TachiyomiXSourceDescriptor].self)
     }
 
     func mangaUpdate(
@@ -289,25 +234,30 @@ public extension JVMRuntime {
         return try decodeResult(response, as: [TachiyomiXPage].self)
     }
 
-    private func decodeResult<Value: Decodable>(
-        _ response: ExtensionHostResponse,
-        as type: Value.Type
-    ) throws -> Value {
-        guard let result = response.result else {
-            throw JVMRuntimeError.decodingFailed(
-                "Extension response has no result"
+    // MARK: - Shared plumbing
+
+    private func pagedManga(
+        operation: String,
+        extensionId: String,
+        sourceId: Int64?,
+        page: Int,
+        query: String? = nil
+    ) throws -> TachiyomiXMangaPage {
+        guard page > 0 else {
+            throw JVMRuntimeError.invalidConfiguration(
+                "Manga page must be at least 1"
             )
         }
-        do {
-            return try JSONDecoder().decode(
-                type,
-                from: Data(result.utf8)
+        let response = try checkedDispatch(
+            ExtensionHostRequest(
+                operation: operation,
+                extensionId: extensionId,
+                sourceId: sourceId.map(String.init),
+                argument: String(page),
+                query: query
             )
-        } catch {
-            throw JVMRuntimeError.decodingFailed(
-                error.localizedDescription
-            )
-        }
+        )
+        return try decodeResult(response, as: TachiyomiXMangaPage.self)
     }
 
     private func checkedDispatch(
@@ -321,5 +271,19 @@ public extension JVMRuntime {
             )
         }
         return response
+    }
+
+    private func decodeResult<Value: Decodable>(
+        _ response: ExtensionHostResponse,
+        as type: Value.Type
+    ) throws -> Value {
+        guard let result = response.result else {
+            throw JVMRuntimeError.decodingFailed("The response carried no result")
+        }
+        do {
+            return try JSONDecoder().decode(type, from: Data(result.utf8))
+        } catch {
+            throw JVMRuntimeError.decodingFailed(error.localizedDescription)
+        }
     }
 }

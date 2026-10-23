@@ -1,5 +1,5 @@
 import Foundation
-import TachiJVMRunner
+import WizardJVMRunner
 
 /// Minimal protobuf wire-format writer, the counterpart of ProtobufReader.
 private struct ProtobufWriter {

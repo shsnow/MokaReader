@@ -538,8 +538,10 @@ struct ReaderView: View {
                 Button { dismiss() } label: {
                     Image(systemName: "xmark")
                         .font(.body.weight(.semibold))
-                        .frame(width: 36, height: 36)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
+                .accessibilityLabel("Cerrar lector")
                 VStack(alignment: .leading, spacing: 2) {
                     Text(context.manga.title)
                         .font(.caption)
@@ -593,6 +595,7 @@ struct ReaderView: View {
                         Image(systemName: "backward.end.fill")
                     }
                     .disabled(!hasPrevious)
+                    .accessibilityLabel("Capítulo anterior")
 
                     Spacer()
 
@@ -602,6 +605,7 @@ struct ReaderView: View {
                         } label: {
                             Image(systemName: isAutoScrolling ? "pause.circle.fill" : "play.circle")
                         }
+                        .accessibilityLabel(isAutoScrolling ? "Pausar autodesplazamiento" : "Autodesplazamiento")
                     }
 
                     if !pages.isEmpty {
@@ -620,6 +624,7 @@ struct ReaderView: View {
                     } label: {
                         Image(systemName: mode.symbol)
                     }
+                    .accessibilityLabel("Modo de lectura")
 
                     Button {
                         Task { await go(to: chapterIndex + 1) }
@@ -627,6 +632,7 @@ struct ReaderView: View {
                         Image(systemName: "forward.end.fill")
                     }
                     .disabled(!hasNext)
+                    .accessibilityLabel("Capítulo siguiente")
                 }
                 .padding(.horizontal, 24)
                 .padding(.vertical, 14)

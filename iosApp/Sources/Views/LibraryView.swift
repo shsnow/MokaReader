@@ -116,6 +116,7 @@ struct LibraryView: View {
                         } label: {
                             Image(systemName: "checkmark.circle")
                         }
+                        .accessibilityLabel("Seleccionar series")
                     }
                     Menu {
                         Picker("Ordenar por", selection: $settings.librarySort) {
@@ -124,6 +125,7 @@ struct LibraryView: View {
                     } label: {
                         Image(systemName: "arrow.up.arrow.down")
                     }
+                    .accessibilityLabel("Ordenar biblioteca")
                 }
             }
         }

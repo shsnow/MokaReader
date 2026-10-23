@@ -1,3 +1,5 @@
+// WizardJVMRunner — Apache License 2.0
+
 import Foundation
 
 public enum JVMRuntimeError: LocalizedError, Sendable {
@@ -11,17 +13,17 @@ public enum JVMRuntimeError: LocalizedError, Sendable {
     public var errorDescription: String? {
         switch self {
             case .invalidConfiguration(let message):
-                "Invalid JVM configuration: \(message)"
+                return "Invalid JVM configuration: \(message)"
             case .startupFailed(let message):
-                "Unable to start Java: \(message)"
+                return "The Java VM could not start: \(message)"
             case .dispatchFailed(_, let message):
-                "Java extension host failed: \(message)"
+                return message
             case .invalidUTF8Response:
-                "Java returned a response that is not valid UTF-8."
+                return "The extension host returned a malformed response"
             case .encodingFailed:
-                "Unable to encode the Java extension request."
+                return "The request could not be encoded"
             case .decodingFailed(let message):
-                "Unable to decode the Java extension response: \(message)"
+                return "The response could not be decoded: \(message)"
         }
     }
 }

@@ -1,3 +1,8 @@
+// WizardJVMRunner — Apache License 2.0
+//
+// The JSON schema of the Apache-licensed extension host: every value
+// crosses as a string; absent fields are simply omitted.
+
 import Foundation
 
 public struct ExtensionHostRequest: Codable, Sendable {
@@ -25,7 +30,7 @@ public struct ExtensionHostRequest: Codable, Sendable {
     public let mangaUpdateStrategy: String?
     public let mangaInitialized: String?
     public let mangaMemo: String?
-    /// JSON-encoded TachiyomiXChapter array, in the order returned by the source.
+    /// JSON-encoded TachiyomiXChapter array, in source order.
     public let mangaChapters: String?
     public let chapterURL: String?
     public let chapterName: String?

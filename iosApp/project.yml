@@ -12,10 +12,10 @@ options:
 #   Resources/JVM/                   Scripts/build-jvm-runtime.sh + stage-jvm-resources.sh device
 
 packages:
-  # Swift/JNI bridge to the embedded VM. Vendored from TachiyomiAZ iOS under GPL-3.0:
-  # temporary, to be replaced or relicensed before App Store submission (see NOTICE.md).
-  TachiJVMRunner:
-    path: Packages/TachiJVMRunner
+  # Swift/JNI bridge to the embedded VM. Written for Wizard Cat Reader
+  # (Apache-2.0) against the JNI spec and the Apache extension-host protocol.
+  WizardJVMRunner:
+    path: Packages/WizardJVMRunner
 
 targets:
   MokaReader:
@@ -43,7 +43,7 @@ targets:
       - framework: Vendor/jvm/OpenJDK.xcframework
         embed: false
         link: true
-      - package: TachiJVMRunner
+      - package: WizardJVMRunner
     info:
       path: Sources/Info.plist
       properties:

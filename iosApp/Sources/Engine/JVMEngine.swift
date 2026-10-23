@@ -1,6 +1,6 @@
 import Combine
 import Foundation
-import TachiJVMRunner
+import WizardJVMRunner
 
 enum EngineState: Equatable {
     case idle
@@ -58,15 +58,49 @@ struct SourceFilter: Decodable, Hashable, Identifiable {
     let group: String?
 }
 
+/// One long-lived worker thread for every Java call. A GCD queue would not do: its worker
+/// threads come and go, and a thread that dies while attached to the VM leaks a JavaThread.
+/// A single persistent thread also gives the Android-compat layer a stable thread identity.
+private final class JVMWorkThread {
+    private let condition = NSCondition()
+    private var jobs: [() -> Void] = []
+
+    init() {
+        let thread = Thread { [self] in
+            while true {
+                condition.lock()
+                while jobs.isEmpty {
+                    condition.wait()
+                }
+                let job = jobs.removeFirst()
+                condition.unlock()
+                job()
+            }
+        }
+        thread.name = "cl.jonas.wizardcat.jvm"
+        // Native stack for JNI frames; the Java stack is sized separately (-Xss).
+        thread.stackSize = 2 << 20
+        thread.qualityOfService = .userInitiated
+        thread.start()
+    }
+
+    func async(_ job: @escaping () -> Void) {
+        condition.lock()
+        jobs.append(job)
+        condition.signal()
+        condition.unlock()
+    }
+}
+
 /// Owns the single in-process Java VM that runs Mihon extension JARs.
 ///
-/// Every Java call is blocking, so they all run on one serial queue rather than on Swift's
-/// cooperative thread pool. The VM itself is created on the main thread, which is what the
+/// Every Java call is blocking, so they all run on one dedicated thread rather than on
+/// Swift's cooperative pool. The VM itself is created on the main thread, which is what the
 /// Android main-looper emulation inside the compatibility layer expects.
 final class JVMEngine: @unchecked Sendable {
     static let shared = JVMEngine()
 
-    private let queue = DispatchQueue(label: "cl.jonas.moka.jvm", qos: .userInitiated)
+    private let queue = JVMWorkThread()
     /// Set once the VM is created and its compatibility layer initialized.
     private var runtime: JVMRuntime?
     /// The VM as soon as it exists, kept even if compatibility init fails.
@@ -474,8 +508,8 @@ final class JVMEngine: @unchecked Sendable {
 /// The JVM compatibility layer calls this to drive a WKWebView (Cloudflare challenges, sites
 /// that render with JavaScript). MokaReader does not ship that bridge yet; answering "unavailable"
 /// lets those extensions fail with a readable error instead of an unresolved symbol.
-@_cdecl("tachiyomiaz_webkit_command")
-func mokaWebKitCommand(
+@_cdecl("wizardcat_webkit_command")
+func wizardWebKitCommand(
     _ operation: UnsafePointer<CChar>?,
     _ handle: Int64,
     _ argument1: UnsafePointer<CChar>?,

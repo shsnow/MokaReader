@@ -63,7 +63,35 @@ struct DownloadsView: View {
                 }
             }
 
-            if groups.isEmpty && downloads.queue.isEmpty {
+            if !downloads.failedJobs.isEmpty {
+                Section("Con error") {
+                    ForEach(downloads.failedJobs) { job in
+                        HStack(alignment: .center, spacing: 10) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(job.chapter.name)
+                                Text(job.manga.title)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Text(downloads.failures[job.id] ?? "Error desconocido")
+                                    .font(.caption)
+                                    .foregroundStyle(.red)
+                                    .lineLimit(2)
+                            }
+                            Spacer()
+                            Button("Reintentar") { downloads.retry(job) }
+                                .buttonStyle(.bordered)
+                                .buttonBorderShape(.capsule)
+                        }
+                        .swipeActions {
+                            Button("Descartar", role: .destructive) {
+                                downloads.dismissFailure(job)
+                            }
+                        }
+                    }
+                }
+            }
+
+            if groups.isEmpty && downloads.queue.isEmpty && downloads.failedJobs.isEmpty {
                 Section {
                     Text("No tienes capítulos descargados. Desde la ficha de una serie, toca el botón de descarga o desliza un capítulo hacia la derecha.")
                         .foregroundStyle(.secondary)

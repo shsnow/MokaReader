@@ -23,6 +23,10 @@ struct MangaDetailView: View {
     @State private var migrating = false
     /// Long-pressed chapter while selecting: anchors the "este y anteriores" range actions.
     @State private var rangeAnchor: ChapterItem?
+    /// Shown as an alert; `error` only renders while the chapter list is empty.
+    @State private var actionError: String?
+    @State private var confirmingDeleteDownloads = false
+    @State private var confirmingRemoval = false
 
     init(manga: MangaItem) {
         _manga = State(initialValue: manga)
@@ -206,20 +210,23 @@ struct MangaDetailView: View {
                 } label: {
                     Image(systemName: modeBinding.wrappedValue.symbol)
                 }
+                .accessibilityLabel("Modo de lectura")
                 downloadMenu
                 if library.contains(manga) {
                     Button {
                         noteDraft = library.note(for: manga)
                         editingNote = true
                     } label: {
-                        Image(systemName: library.note(for: manga).isEmpty ? "note.text" : "note.text.badge.plus")
+                        Image(systemName: library.note(for: manga).isEmpty ? "note.text.badge.plus" : "note.text")
                     }
+                    .accessibilityLabel("Nota de la serie")
                 }
                 Button {
                     toggleLibrary()
                 } label: {
                     Image(systemName: library.contains(manga) ? "bookmark.fill" : "bookmark")
                 }
+                .accessibilityLabel(library.contains(manga) ? "Quitar de la biblioteca" : "Guardar en la biblioteca")
                 if siteURL != nil || library.contains(manga) {
                     Menu {
                         if library.contains(manga) {
@@ -240,6 +247,7 @@ struct MangaDetailView: View {
                     } label: {
                         Image(systemName: "ellipsis.circle")
                     }
+                    .accessibilityLabel("Más opciones")
                 }
             }
         }
@@ -315,6 +323,33 @@ struct MangaDetailView: View {
         } message: { anchor in
             Text(anchor.name)
         }
+        .confirmationDialog(
+            "¿Borrar las descargas de esta serie?",
+            isPresented: $confirmingDeleteDownloads,
+            titleVisibility: .visible
+        ) {
+            Button("Borrar descargas", role: .destructive) {
+                downloads.deleteAll(mangaId: manga.id)
+            }
+        }
+        .confirmationDialog(
+            "¿Quitar de la biblioteca?",
+            isPresented: $confirmingRemoval,
+            titleVisibility: .visible
+        ) {
+            Button("Quitar", role: .destructive) { library.remove(manga) }
+        } message: {
+            Text("Se pierden la nota y las categorías de esta serie.")
+        }
+        .alert(
+            "No se puede abrir",
+            isPresented: Binding(
+                get: { actionError != nil },
+                set: { if !$0 { actionError = nil } }
+            ),
+            actions: { Button("OK", role: .cancel) {} },
+            message: { Text(actionError ?? "") }
+        )
     }
 
     /// The anchor and every older chapter, oldest first.
@@ -355,7 +390,7 @@ struct MangaDetailView: View {
                 Label("Seleccionar capítulos", systemImage: "checkmark.circle")
             }
             Button(role: .destructive) {
-                downloads.deleteAll(mangaId: manga.id)
+                confirmingDeleteDownloads = true
             } label: {
                 Label("Borrar descargas de esta serie", systemImage: "trash")
             }
@@ -363,6 +398,7 @@ struct MangaDetailView: View {
             Image(systemName: "arrow.down.circle")
         }
         .disabled(chapters.isEmpty || installed == nil)
+        .accessibilityLabel("Descargas")
     }
 
     private var header: some View {
@@ -439,15 +475,18 @@ struct MangaDetailView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 if bookmarked {
-                    Image(systemName: "bookmark.fill")
+                    Image(systemName: "star.fill")
                         .font(.caption)
-                        .foregroundStyle(Color.moka)
+                        .foregroundStyle(.orange)
                 }
                 if state == .none, !selectingChapters, installed != nil {
                     Image(systemName: "arrow.down.circle")
                         .font(.title3)
                         .foregroundStyle(.secondary)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                         .onTapGesture { download([chapter]) }
+                        .accessibilityLabel("Descargar capítulo")
                 } else {
                     downloadIndicator(state)
                 }
@@ -474,7 +513,7 @@ struct MangaDetailView: View {
                 }
                 .tint(read ? .gray : .moka)
                 if state == .downloaded {
-                    Button("Borrar desc.", role: .destructive) {
+                    Button("Borrar descarga", role: .destructive) {
                         downloads.delete(manga: manga, chapter: chapter)
                     }
                 }
@@ -495,7 +534,7 @@ struct MangaDetailView: View {
             selectionBarButton("Bajar", symbol: "arrow.down.circle") {
                 download(selectedItems.filter { !downloads.isDownloaded(manga: manga, chapter: $0) })
             }
-            selectionBarButton("Favorito", symbol: "bookmark") {
+            selectionBarButton("Favorito", symbol: "star") {
                 library.toggleBookmark(chapterURLs: selectedItems.map(\.url), in: manga)
             }
             selectionBarButton("Leído", symbol: "checkmark.circle") {
@@ -571,7 +610,13 @@ struct MangaDetailView: View {
 
     private func toggleLibrary() {
         if library.contains(manga) {
-            library.remove(manga)
+            // Removing silently would also discard the note and categories.
+            let entry = library.entry(for: manga)
+            if entry?.note != nil || !(entry?.categories ?? []).isEmpty {
+                confirmingRemoval = true
+            } else {
+                library.remove(manga)
+            }
         } else {
             library.add(manga, chapters: chapters)
             UINotificationFeedbackGenerator().notificationOccurred(.success)
@@ -585,7 +630,7 @@ struct MangaDetailView: View {
 
     private func open(_ chapter: ChapterItem) {
         guard let installed else {
-            error = "La extensión de esta fuente no está instalada."
+            actionError = "Instala la extensión de esta fuente (pestaña Extensiones) para leer sus capítulos."
             return
         }
         let ordered = ascending

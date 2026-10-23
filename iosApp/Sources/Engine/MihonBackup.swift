@@ -1,5 +1,5 @@
 import Foundation
-import TachiJVMRunner
+import WizardJVMRunner
 
 /// Reads Mihon / Tachiyomi `.tachibk` backups: a gzipped protobuf whose field numbers come from
 /// Mihon's `@ProtoNumber` annotations. Only what MokaReader can use is decoded — the library,

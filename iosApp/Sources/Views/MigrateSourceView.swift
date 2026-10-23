@@ -128,7 +128,7 @@ struct MigrateSourceView: View {
             }
         }
         .listStyle(.plain)
-        .searchable(text: $query, prompt: "Título a buscar")
+        .searchable(text: $query, prompt: "Buscar en otras fuentes")
         .onSubmit(of: .search) { searchId = UUID() }
         .task(id: searchId) { await search() }
     }

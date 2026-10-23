@@ -18,7 +18,13 @@ final class LibraryUpdater: ObservableObject {
     private var task: Task<Void, Never>?
     private var cancelRequested = false
 
-    private init() {}
+    private init() {
+        // The "Nuevo" labels and the last-update summary survive app restarts.
+        lastFinished = UserDefaults.standard.object(forKey: "updaterLastFinished") as? Date
+        if let stored = UserDefaults.standard.array(forKey: "updaterLastNewURLs") as? [String] {
+            lastNewURLs = Set(stored)
+        }
+    }
 
     /// Fire-and-forget, for the toolbar button.
     func refreshAll(library: LibraryStore, extensions: ExtensionManager) {
@@ -69,9 +75,13 @@ final class LibraryUpdater: ObservableObject {
                 continue
             }
         }
-        if !discovered.isEmpty { lastNewURLs = discovered }
+        if !discovered.isEmpty {
+            lastNewURLs = discovered
+            UserDefaults.standard.set(Array(discovered), forKey: "updaterLastNewURLs")
+        }
         isRefreshing = false
         lastFinished = Date()
+        UserDefaults.standard.set(lastFinished, forKey: "updaterLastFinished")
     }
 
     func cancel() {

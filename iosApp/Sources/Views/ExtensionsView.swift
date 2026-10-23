@@ -48,7 +48,7 @@ struct ExtensionsView: View {
 
             Section("Instaladas") {
                 if extensions.installed.isEmpty {
-                    Text("Todavía no instalas ninguna extensión.")
+                    Text("Todavía no has instalado ninguna extensión.")
                         .foregroundStyle(.secondary)
                 }
                 ForEach(installedFiltered) { record in
