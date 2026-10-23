@@ -103,100 +103,8 @@ struct MangaDetailView: View {
                 .listRowSeparator(.hidden)
                 .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 4, trailing: 16))
 
-            if let summary = manga.summary, !summary.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(summary)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(expanded ? nil : 4)
-                    Button(expanded ? "Ver menos" : "Ver más") {
-                        withAnimation { expanded.toggle() }
-                    }
-                    .font(.footnote.weight(.semibold))
-                }
-                .listRowSeparator(.hidden)
-            }
-
-            if !manga.genres.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack {
-                        ForEach(manga.genres, id: \.self) { genre in
-                            Text(genre)
-                                .font(.caption)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 5)
-                                .background(Color(.secondarySystemBackground), in: Capsule())
-                        }
-                    }
-                }
-                .listRowSeparator(.hidden)
-            }
-
-            if library.contains(manga), !library.note(for: manga).isEmpty {
-                Text(library.note(for: manga))
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.moka.opacity(0.08), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .listRowSeparator(.hidden)
-            }
-
-            if let target = continueTarget {
-                Button {
-                    open(target)
-                } label: {
-                    Text(buttonTitle(for: target))
-                        .font(.body.weight(.semibold))
-                        .lineLimit(1)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(Color.moka, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        .foregroundStyle(.white)
-                }
-                .buttonStyle(.plain)
-                .listRowSeparator(.hidden)
-            }
-
-            Section {
-                if chapters.isEmpty && isLoading {
-                    HStack { Spacer(); ProgressView(); Spacer() }
-                } else if chapters.isEmpty, let error {
-                    VStack(spacing: 8) {
-                        Text(error).font(.footnote).foregroundStyle(.secondary)
-                        Button("Reintentar") { Task { await refresh() } }
-                    }
-                    .frame(maxWidth: .infinity)
-                }
-                ForEach(displayed) { chapter in
-                    chapterRow(chapter)
-                }
-            } header: {
-                HStack {
-                    if selectingChapters {
-                        Text("\(selectedChapters.count) seleccionados")
-                        Spacer()
-                        Button(selectedChapters.count == chapters.count ? "Ninguno" : "Todos") {
-                            selectedChapters = selectedChapters.count == chapters.count
-                                ? []
-                                : Set(chapters.map(\.url))
-                        }
-                        Button("Listo") {
-                            selectingChapters = false
-                            selectedChapters = []
-                        }
-                        .fontWeight(.semibold)
-                    } else {
-                        Text(chapters.count == 1 ? "1 capítulo" : "\(chapters.count) capítulos")
-                        Spacer()
-                        Button {
-                            newestFirst.toggle()
-                        } label: {
-                            Image(systemName: newestFirst ? "arrow.down" : "arrow.up")
-                        }
-                    }
-                }
-            }
+            aboutRows
+            chapterSection
         }
         .listStyle(.plain)
         .toolbar {
@@ -364,6 +272,136 @@ struct MangaDetailView: View {
         let ordered = ascending
         guard let index = ordered.firstIndex(where: { $0.url == anchor.url }) else { return [] }
         return Array(ordered[index...])
+    }
+
+    // Split into small views on purpose: as one List closure, the Swift
+    // type-checker gives up on this screen ("unable to type-check in
+    // reasonable time").
+
+    @ViewBuilder
+    private var aboutRows: some View {
+        if let summary = manga.summary, !summary.isEmpty {
+            summaryRow(summary)
+        }
+        if !manga.genres.isEmpty {
+            genreRow
+        }
+        if library.contains(manga), !library.note(for: manga).isEmpty {
+            noteRow
+        }
+        if let target = continueTarget {
+            continueButton(target)
+        }
+    }
+
+    private func summaryRow(_ summary: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(summary)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .lineLimit(expanded ? nil : 4)
+            Button(expanded ? "Ver menos" : "Ver más") {
+                withAnimation { expanded.toggle() }
+            }
+            .font(.footnote.weight(.semibold))
+        }
+        .listRowSeparator(.hidden)
+    }
+
+    private var genreRow: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack {
+                ForEach(manga.genres, id: \.self) { genre in
+                    Text(genre)
+                        .font(.caption)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Color(.secondarySystemBackground), in: Capsule())
+                }
+            }
+        }
+        .listRowSeparator(.hidden)
+    }
+
+    private var noteRow: some View {
+        Text(library.note(for: manga))
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                Color.moka.opacity(0.08),
+                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+            )
+            .listRowSeparator(.hidden)
+    }
+
+    private func continueButton(_ target: ChapterItem) -> some View {
+        let title = buttonTitle(for: target)
+        return Button {
+            open(target)
+        } label: {
+            Text(title)
+                .font(.body.weight(.semibold))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(
+                    Color.moka,
+                    in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                )
+                .foregroundStyle(.white)
+        }
+        .buttonStyle(.plain)
+        .listRowSeparator(.hidden)
+    }
+
+    private var chapterSection: some View {
+        Section {
+            if chapters.isEmpty && isLoading {
+                HStack { Spacer(); ProgressView(); Spacer() }
+            } else if chapters.isEmpty, let error {
+                VStack(spacing: 8) {
+                    Text(error).font(.footnote).foregroundStyle(.secondary)
+                    Button("Reintentar") { Task { await refresh() } }
+                }
+                .frame(maxWidth: .infinity)
+            }
+            ForEach(displayed) { chapter in
+                chapterRow(chapter)
+            }
+        } header: {
+            chapterSectionHeader
+        }
+    }
+
+    @ViewBuilder
+    private var chapterSectionHeader: some View {
+        HStack {
+            if selectingChapters {
+                Text("\(selectedChapters.count) seleccionados")
+                Spacer()
+                Button(selectedChapters.count == chapters.count ? "Ninguno" : "Todos") {
+                    selectedChapters = selectedChapters.count == chapters.count
+                        ? []
+                        : Set(chapters.map(\.url))
+                }
+                Button("Listo") {
+                    selectingChapters = false
+                    selectedChapters = []
+                }
+                .fontWeight(.semibold)
+            } else {
+                Text(chapters.count == 1 ? "1 capítulo" : "\(chapters.count) capítulos")
+                Spacer()
+                Button {
+                    newestFirst.toggle()
+                } label: {
+                    Image(systemName: newestFirst ? "arrow.down" : "arrow.up")
+                }
+                .accessibilityLabel("Invertir orden")
+            }
+        }
     }
 
     private var downloadMenu: some View {
